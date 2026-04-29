@@ -8,7 +8,7 @@ import {
   Bell, Plus, Minus, Clock, Activity, BarChart3, Settings, X, Check, Search,
   Globe, Zap, Wallet, ArrowDownToLine, MousePointer, Slash, Square, Eraser,
   Trash2, History as HistoryIcon, Sliders, Menu, Pencil, Trophy, Megaphone,
-  LifeBuoy
+  LifeBuoy, User as UserIcon
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -24,6 +24,7 @@ import AccountSwitcher from '@/components/AccountSwitcher';
 import DepositModal from '@/components/DepositModal';
 import WithdrawalModal from '@/components/WithdrawalModal';
 import Leaderboard from '@/components/Leaderboard';
+import AssetList from '@/components/AssetList';
 import { api, getStoredUser, setStoredUser, setToken } from '@/lib/api';
 import { toast } from 'sonner';
 
@@ -233,12 +234,8 @@ export default function TradeTerminal() {
   const balance = user ? (user.activeAccount === 'demo' ? user.demoBalance : user.liveBalance) : 0;
   const currentAsset = useMemo(() => assets.find(a => a.symbol === asset), [assets, asset]);
   const payoutAmount = useMemo(() => +(amount * (1 + payoutPct)).toFixed(2), [amount, payoutPct]);
-  const filteredOTC = useMemo(() => assets.filter(a => a.kind === 'otc').filter(a =>
-    !search || a.display.toLowerCase().includes(search.toLowerCase()) || a.symbol.toLowerCase().includes(search.toLowerCase())
-  ), [assets, search]);
-  const filteredLive = useMemo(() => assets.filter(a => a.kind === 'live').filter(a =>
-    !search || a.display.toLowerCase().includes(search.toLowerCase()) || a.name.toLowerCase().includes(search.toLowerCase())
-  ), [assets, search]);
+  const filteredLive = useMemo(() => assets.filter(a => a.kind === 'live'), [assets]);
+  const filteredOTC  = useMemo(() => assets.filter(a => a.kind === 'otc'), [assets]);
   const visibleTrades = activeTrades.filter(t => t.asset === asset);
 
   const onShapeAdd = (sh) => setShapes(arr => [...arr, sh]);
@@ -247,39 +244,11 @@ export default function TradeTerminal() {
 
   const pickAsset = (a) => { setAsset(a.symbol); setSearch(''); setMobileAssetsOpen(false); };
 
-  // ---------- Asset selector component (shared between mobile + desktop) ----------
-  const AssetList = ({ onPick, mobileFull }) => (
-    <>
-      <div className="flex border-b border-white/5 shrink-0">
-        <button onClick={() => setAssetTab('otc')} className={`flex-1 px-4 py-2.5 text-xs font-bold uppercase ${assetTab === 'otc' ? 'text-[#00b97a] border-b-2 border-[#00b97a]' : 'text-white/40'}`}>
-          <Zap className="w-3 h-3 inline mr-1" /> OTC
-        </button>
-        <button onClick={() => setAssetTab('live')} className={`flex-1 px-4 py-2.5 text-xs font-bold uppercase ${assetTab === 'live' ? 'text-[#ff5555] border-b-2 border-[#ff5555]' : 'text-white/40'}`}>
-          <Globe className="w-3 h-3 inline mr-1" /> LIVE MARKET
-        </button>
-      </div>
-      <div className="p-2 border-b border-white/5 shrink-0">
-        <div className="flex items-center gap-2 bg-[#0c1015] border border-white/5 rounded px-2 py-1.5">
-          <Search className="w-3.5 h-3.5 text-white/30" />
-          <input autoFocus placeholder="Search asset..." value={search} onChange={e => setSearch(e.target.value)} className="bg-transparent flex-1 text-xs outline-none text-white/80" />
-        </div>
-      </div>
-      <div className={`${mobileFull ? 'flex-1 min-h-0' : 'max-h-[480px]'} overflow-y-auto scrollbar-thin overscroll-contain`} style={{ WebkitOverflowScrolling: 'touch' }}>
-        {(assetTab === 'otc' ? filteredOTC : filteredLive).map(a => (
-          <button key={a.symbol} onClick={() => onPick(a)} className="w-full flex justify-between items-center px-3 py-2.5 hover:bg-white/5 border-b border-white/[0.03] text-left">
-            <div>
-              <div className="text-sm font-semibold">{a.display}</div>
-              <div className="text-[10px] text-white/40">{a.name}</div>
-            </div>
-            <div className="text-right">
-              <div className="text-xs font-mono">{a.price ? Number(a.price).toFixed(a.decimals) : '...'}</div>
-              <div className="text-[10px] text-[#f0b90b] font-bold">{Math.round(a.payout * 100)}%</div>
-            </div>
-          </button>
-        ))}
-      </div>
-    </>
-  );
+  // NOTE: AssetList is now a top-level component in /components/AssetList.jsx.
+  // Nesting it inside this render function made React unmount+remount the
+  // list on every state change — that is why picking a currency pair or
+  // toggling OTC/LIVE used to need two clicks. Passing all needed state
+  // through as props keeps a stable component identity.
 
   // ---------- Trade form (time + amount + up/down) — shared ----------
   const TradeForm = ({ compact }) => (
@@ -418,6 +387,7 @@ export default function TradeTerminal() {
           <RailBtn icon={HistoryIcon} label="History" onClick={() => setHistoryOpen(true)} />
           <RailBtn icon={Wallet} label="Deposit" onClick={() => setDepositOpen(true)} />
           <RailBtn icon={ArrowDownToLine} label="Withdraw" onClick={() => setWithdrawOpen(true)} />
+          <RailBtn icon={UserIcon} label="My Account" onClick={() => router.push('/account')} />
           <div className="flex-1" />
           <RailBtn icon={LifeBuoy} label="Support" badge={supportUnread} onClick={() => router.push('/support')} />
           <RailBtn icon={Settings} label="Settings" onClick={() => setSettingsOpen(true)} />
@@ -446,7 +416,14 @@ export default function TradeTerminal() {
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent className="bg-[#11161e] border-white/10 w-[360px] p-0" align="start">
-                <AssetList onPick={pickAsset} />
+                <AssetList
+                  assets={assets}
+                  assetTab={assetTab}
+                  setAssetTab={setAssetTab}
+                  search={search}
+                  setSearch={setSearch}
+                  onPick={pickAsset}
+                />
               </DropdownMenuContent>
             </DropdownMenu>
 
@@ -634,7 +611,15 @@ export default function TradeTerminal() {
           <SheetTitle className="sr-only">Choose asset</SheetTitle>
           <div className="w-10 h-1 bg-white/20 rounded-full mx-auto my-3 shrink-0" />
           <div className="flex-1 min-h-0 flex flex-col">
-            <AssetList onPick={pickAsset} mobileFull />
+            <AssetList
+              assets={assets}
+              assetTab={assetTab}
+              setAssetTab={setAssetTab}
+              search={search}
+              setSearch={setSearch}
+              onPick={pickAsset}
+              mobileFull
+            />
           </div>
         </SheetContent>
       </Sheet>

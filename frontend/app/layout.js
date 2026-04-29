@@ -2,11 +2,11 @@ import './globals.css';
 import { Toaster } from '@/components/ui/sonner';
 
 export const metadata = {
-  title: 'TRADING LITE — Online Trading Platform',
+  title: 'NEXTTRADX — Online Trading Platform',
   description: 'Trade 400+ assets with low minimums. Real-time forex, gold and OTC markets. Demo & Live accounts.',
-  applicationName: 'Trading Lite',
-  keywords: ['trading', 'forex', 'binary options', 'gold', 'OTC', 'XAU/USD', 'online trading'],
-  authors: [{ name: 'Trading Lite' }],
+  applicationName: 'NEXTTRADX',
+  keywords: ['trading', 'forex', 'binary options', 'gold', 'OTC', 'XAU/USD', 'online trading', 'nexttradx'],
+  authors: [{ name: 'NEXTTRADX' }],
   icons: {
     icon: [
       { url: '/icon.svg', type: 'image/svg+xml' },
@@ -14,15 +14,15 @@ export const metadata = {
     apple: '/icon.svg',
   },
   openGraph: {
-    title: 'TRADING LITE — Online Trading Platform',
+    title: 'NEXTTRADX — Online Trading Platform',
     description: 'Trade 400+ assets with low minimums. Real-time forex & gold markets.',
-    siteName: 'Trading Lite',
+    siteName: 'NEXTTRADX',
     type: 'website',
-    images: [{ url: '/icon.svg', width: 512, height: 512, alt: 'Trading Lite' }],
+    images: [{ url: '/icon.svg', width: 512, height: 512, alt: 'NEXTTRADX' }],
   },
   twitter: {
     card: 'summary',
-    title: 'TRADING LITE — Online Trading Platform',
+    title: 'NEXTTRADX — Online Trading Platform',
     description: 'Trade 400+ assets with low minimums. Real-time forex & gold markets.',
     images: ['/icon.svg'],
   },

@@ -64,6 +64,10 @@ export const api = {
   me: () => request('/auth/me'),
   switchAccount: (account) => request('/auth/switch', { method: 'POST', body: JSON.stringify({ account }) }),
   resetDemo: () => request('/auth/reset-demo', { method: 'POST' }),
+  changePassword: (currentPassword, newPassword) =>
+    request('/auth/change-password', { method: 'POST', body: JSON.stringify({ currentPassword, newPassword }) }),
+  updateProfile: (name) =>
+    request('/auth/profile', { method: 'PUT', body: JSON.stringify({ name }) }),
   assets: () => request('/assets'),
   price: (sym) => request(`/price/${sym}`),
   candles: (sym, interval = 5) => request(`/candles/${sym}?interval=${interval}`),

@@ -120,6 +120,40 @@ async function handler(req, { params }) {
       return json({ user: publicUser(fresh) });
     }
 
+    if (route === 'auth/change-password' && method === 'POST') {
+      const u = await requireUser(req);
+      if (!u) return json({ error: 'Unauthorized' }, 401);
+      const { currentPassword, newPassword } = await req.json();
+      if (!currentPassword || !newPassword) {
+        return json({ error: 'currentPassword and newPassword are required' }, 400);
+      }
+      if (String(newPassword).length < 6) {
+        return json({ error: 'New password must be at least 6 characters' }, 400);
+      }
+      const ok = await comparePassword(currentPassword, u.passwordHash);
+      if (!ok) return json({ error: 'Current password is incorrect' }, 401);
+      const newHash = await hashPassword(newPassword);
+      await db.collection('users').updateOne(
+        { id: u.id },
+        { $set: { passwordHash: newHash, passwordUpdatedAt: new Date() } }
+      );
+      return json({ ok: true });
+    }
+
+    if (route === 'auth/profile' && method === 'PUT') {
+      const u = await requireUser(req);
+      if (!u) return json({ error: 'Unauthorized' }, 401);
+      const { name } = await req.json();
+      const trimmed = typeof name === 'string' ? name.trim() : '';
+      if (!trimmed) return json({ error: 'Name is required' }, 400);
+      await db.collection('users').updateOne(
+        { id: u.id },
+        { $set: { name: trimmed } }
+      );
+      const fresh = await db.collection('users').findOne({ id: u.id });
+      return json({ user: publicUser(fresh) });
+    }
+
     // ----- MARKET DATA -----
     if (route === 'assets' && method === 'GET') {
       return json({ assets: getAssets() });

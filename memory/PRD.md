@@ -47,6 +47,16 @@ workspace runs the `fastapi_react_mongo_shadcn` base image. Adapted layout:
 - ✅ Verified seed users + admin role via `/api/auth/login`
 - ✅ Backend test suite: **39/39 pytest cases passing** — auth, assets, candles, trades (with auto-resolve), deposits/withdrawals (escrow/refund), admin (users, trades, stats, force, balance), announcements CRUD, support tickets, leaderboard
 
+### Rebrand + Fixes (2026-Jan-R2)
+- ✅ **New "NEXTTRADX" brand logo** — custom hexagonal SVG mark with stylised N / bullish arrow, rebuilt `TradingLiteLogo.jsx` (QuotexLogo alias preserved for back-compat). Updated everywhere (landing, login, signup, trade rail, footer, admin).
+- ✅ Replaced all "Quotex" copy with "NEXT-TRADEX" (landing page: "Start trading with…", "…Innovation Broker Platform", trader testimonial; login / signup footers; tab title + OpenGraph meta).
+- ✅ Removed **Quick login (demo creds)** block and Master User / Admin shortcut buttons from `/login` (pre-deploy hygiene; email/password fields start empty).
+- ✅ Added **Confirm password** field on `/signup` with inline "Passwords do not match." warning + disabled submit until matched + 6-char minimum.
+- ✅ **Single-click OTC ↔ LIVE toggle and asset-pair selection** — extracted `AssetList` to a top-level component (`/components/AssetList.jsx`). Root cause: the inline `AssetList` was being re-declared on every render of the trade page, which caused Radix's DropdownMenu portal to unmount it on the first click; the click never reached the child buttons, so users had to click twice. With the top-level component, Radix keeps a stable identity and the first click registers.
+- ✅ **My Account page** at `/account` — profile card (name edit, email read-only, role, user id), balance stats (demo / live / active), change-password form (current + new + confirm, 6-char min, server validates current password). Logout + back-to-trade nav.
+- ✅ New backend endpoints: `POST /api/auth/change-password`, `PUT /api/auth/profile`; client helpers `api.changePassword`, `api.updateProfile`.
+- ✅ Rail navigation on `/trade` gained a "My Account" entry (above Support / Settings).
+
 ## Known Non-Blocking Findings (from backend tests)
 - `_id` MongoDB field leaks in several admin list endpoints → should be excluded via `{_id: 0}` projection
 - `/api/settings/public` requires Bearer auth despite the name — decide to open or rename

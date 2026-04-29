@@ -855,6 +855,12 @@ video {
 .mt-auto {
   margin-top: auto;
 }
+.ml-0\.5 {
+  margin-left: 0.125rem;
+}
+.mt-6 {
+  margin-top: 1.5rem;
+}
 .block {
   display: block;
 }
@@ -1234,6 +1240,9 @@ video {
 }
 .max-w-xl {
   max-width: 36rem;
+}
+.max-w-4xl {
+  max-width: 56rem;
 }
 .flex-1 {
   flex: 1 1 0%;
@@ -1860,6 +1869,9 @@ video {
 .bg-white\/5 {
   background-color: rgb(255 255 255 / 0.05);
 }
+.bg-\[\#0c1015\]\/90 {
+  background-color: rgb(12 16 21 / 0.9);
+}
 .bg-gradient-to-br {
   background-image: linear-gradient(to bottom right, var(--tw-gradient-stops));
 }
@@ -1916,6 +1928,11 @@ video {
   --tw-gradient-to: rgb(255 85 85 / 0) var(--tw-gradient-to-position);
   --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to);
 }
+.from-\[\#00b97a\]\/30 {
+  --tw-gradient-from: rgb(0 185 122 / 0.3) var(--tw-gradient-from-position);
+  --tw-gradient-to: rgb(0 185 122 / 0) var(--tw-gradient-to-position);
+  --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to);
+}
 .via-\[\#22d3ee\] {
   --tw-gradient-to: rgb(34 211 238 / 0)  var(--tw-gradient-to-position);
   --tw-gradient-stops: var(--tw-gradient-from), #22d3ee var(--tw-gradient-via-position), var(--tw-gradient-to);
@@ -1951,6 +1968,9 @@ video {
 }
 .to-transparent {
   --tw-gradient-to: transparent var(--tw-gradient-to-position);
+}
+.to-\[\#22d3ee\]\/20 {
+  --tw-gradient-to: rgb(34 211 238 / 0.2) var(--tw-gradient-to-position);
 }
 .fill-current {
   fill: currentColor;
@@ -2257,6 +2277,9 @@ video {
 }
 .tracking-widest {
   letter-spacing: 0.1em;
+}
+.tracking-wide {
+  letter-spacing: 0.025em;
 }
 .text-\[\#00b97a\] {
   --tw-text-opacity: 1;
@@ -2844,6 +2867,17 @@ html, body {
 }
 .hover\:text-white\/60:hover {
   color: rgb(255 255 255 / 0.6);
+}
+.hover\:text-white\/70:hover {
+  color: rgb(255 255 255 / 0.7);
+}
+.hover\:text-\[\#00d488\]:hover {
+  --tw-text-opacity: 1;
+  color: rgb(0 212 136 / var(--tw-text-opacity, 1));
+}
+.hover\:text-\[\#ff5555\]:hover {
+  --tw-text-opacity: 1;
+  color: rgb(255 85 85 / var(--tw-text-opacity, 1));
 }
 .hover\:underline:hover {
   text-decoration-line: underline;

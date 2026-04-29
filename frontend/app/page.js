@@ -140,7 +140,7 @@ export default function LandingPage() {
 
       {/* How it works */}
       <section id="how" className="container mx-auto px-4 py-16">
-        <h2 className="text-3xl md:text-4xl font-bold text-center mb-2">Start trading with Quotex</h2>
+        <h2 className="text-3xl md:text-4xl font-bold text-center mb-2">Start trading with NEXT-TRADEX</h2>
         <p className="text-white/50 text-center mb-12">in 3 simple steps</p>
         <div className="grid md:grid-cols-3 gap-6">
           {[
@@ -162,7 +162,7 @@ export default function LandingPage() {
         <h2 className="text-3xl md:text-4xl font-bold mb-8">Trader opinions</h2>
         <div className="grid md:grid-cols-3 gap-4">
           {[
-            { n: 'Ashok Kumar', s: 5, q: 'Quotex is really a good platform for trading. Charts are fast in terms of response.' },
+            { n: 'Ashok Kumar', s: 5, q: 'NEXT-TRADEX is really a good platform for trading. Charts are fast in terms of response.' },
             { n: 'Maria Lopes', s: 5, q: 'Withdrawals are fast and the platform is highly customizable for my strategies.' },
             { n: 'David Chen', s: 5, q: 'Best UX I have used in binary options. Demo account is very generous.' },
           ].map(r => (
@@ -200,7 +200,7 @@ export default function LandingPage() {
       <section className="container mx-auto px-4 py-16">
         <div className="rounded-3xl bg-gradient-to-r from-[#11161e] to-[#0a0d12] border border-white/5 p-10 md:p-16 text-center relative overflow-hidden">
           <div className="absolute inset-0 qx-bg-grid opacity-20" />
-          <h2 className="text-3xl md:text-5xl font-extrabold mb-4 relative">Quotex Broker: Innovation Platform</h2>
+          <h2 className="text-3xl md:text-5xl font-extrabold mb-4 relative">NEXT-TRADEX: Innovation Broker Platform</h2>
           <p className="text-white/60 mb-8 relative">Digital Asset Trading — start with as little as $1.</p>
           <div className="flex flex-wrap gap-3 justify-center relative">
             <Button size="lg" className="bg-[#00b97a] hover:bg-[#00a86d] text-white font-bold text-base px-8 h-14" onClick={() => router.push('/signup')}>

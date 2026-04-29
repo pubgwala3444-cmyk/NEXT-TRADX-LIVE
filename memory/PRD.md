@@ -1,0 +1,85 @@
+# Trading Lite (Quotex Clone) — PRD
+
+## Original Problem Statement
+User uploaded `Quotex-clone-main.zip` (a Next.js 14 + MongoDB binary-options trading
+platform) and asked to: (a) bring it into the Emergent workspace, (b) apply updates,
+(c) deploy it live on Emergent. User preferences:
+- Keep original stack (Next.js + MongoDB)
+- Deploy on Emergent (native)
+- No third-party integrations required
+- Live forex prices via built-in free source (Yahoo Finance)
+
+## Architecture (as-adapted for Emergent)
+The uploaded project was designed for the `nextjs_mongo_shadcn_base_image`, but this
+workspace runs the `fastapi_react_mongo_shadcn` base image. Adapted layout:
+
+- `/app/frontend/` — Entire Next.js 14 project (pages, lib/, components/, app/api/[[...path]]/route.js)
+  - Runs via `yarn start` → `next dev --hostname 0.0.0.0 --port 3000`
+  - Owns ALL backend logic: MongoDB, JWT, price engine, trade resolver, admin
+- `/app/backend/server.py` — FastAPI **reverse proxy** on port 8001 that forwards
+  `/api/*` → `http://localhost:3000/api/*` (required because the Emergent ingress
+  routes `/api` traffic to 8001 while frontend gets port 3000)
+- MongoDB — `mongodb://localhost:27017` with `DB_NAME=quotex_clone`
+
+## User Personas
+- **Trader (default user)**: signs up, practices on a $10,000 demo, deposits to live,
+  places UP/DOWN trades on 40+ OTC+live forex/gold assets, tracks history, chats with support.
+- **Admin**: manages users, reviews pending deposits/withdrawals, adjusts balances,
+  monitors open trades, force-wins/force-loses specific trades, sets global house edge
+  (`winRatio`, `payoutRate`), pushes announcements, responds to support tickets.
+
+## Core Requirements (static)
+- Email+password auth (JWT 7-day), bcrypt hashing, seed `admin@trading.com` + `masteruser@trading.com`
+- Dual-account wallet (demo/live) per user, switchable; demo resettable
+- 40+ assets: 21 synthetic OTC + 20 live forex/metals via Yahoo Finance polling (2s)
+- Candle intervals: 5s / 15s / 60s / 180s / 300s / 600s; 80 pre-warmed bars per interval
+- Binary trades: amount + direction (up/down) + duration → auto-resolve by background loop
+- House-edge engine: global `winRatio` (default 20% wins allowed when user is naturally winning) + per-trade admin force win/loss with last-second "wedge" nudge
+- Deposit requests (with proof), withdrawal requests (with escrow + refund on reject)
+- Announcements (active-window based), leaderboard (top traders by PnL), support tickets (user↔admin chat)
+
+## What's Been Implemented  (2026-Jan)
+- ✅ Brought Next.js project from ZIP into `/app/frontend`, preserving all files (app, lib, components, hooks)
+- ✅ Created FastAPI reverse proxy (`/app/backend/server.py`) using httpx so every `/api/*` hit reaches Next.js
+- ✅ Wired `MONGO_URL`, `DB_NAME`, `JWT_SECRET`, `NEXT_PUBLIC_APP_URL`, `REACT_APP_BACKEND_URL`, `CORS_ORIGINS` in `/app/frontend/.env`
+- ✅ Adjusted `yarn start` to `next dev` for hot reload in the preview environment
+- ✅ Verified live feed (Yahoo Finance) delivers real prices (Gold $4,557 / GBPUSD 1.3475 at test time)
+- ✅ Verified seed users + admin role via `/api/auth/login`
+- ✅ Backend test suite: **39/39 pytest cases passing** — auth, assets, candles, trades (with auto-resolve), deposits/withdrawals (escrow/refund), admin (users, trades, stats, force, balance), announcements CRUD, support tickets, leaderboard
+
+## Known Non-Blocking Findings (from backend tests)
+- `_id` MongoDB field leaks in several admin list endpoints → should be excluded via `{_id: 0}` projection
+- `/api/settings/public` requires Bearer auth despite the name — decide to open or rename
+- `/api/auth/signup` accepts any non-empty password (no length/complexity check)
+- `/api/admin/trades/:id/force` returns 200 even for unknown trade IDs (should 404)
+- `app/api/[[...path]]/route.js` is a single 735-line catch-all — refactor candidate
+- Background loops (engine/resolver/feed) start on first request; move to `instrumentation.ts` for prod multi-process safety
+
+## Prioritized Backlog
+### P0 (pre-deploy)
+- [ ] Confirm with user what specific "updates" / UI-UX redesign items they want
+- [ ] Run the Emergent native deploy (user-initiated from the chat input)
+
+### P1 (polish)
+- [ ] Strip `_id` from admin responses
+- [ ] Add password-strength validation on signup
+- [ ] Return 404 from admin force when trade not found
+- [ ] Clarify `/api/settings/public` auth intent
+- [ ] Replace hero animated line chart with a lightweight-charts real candle preview
+
+### P2 (roadmap)
+- [ ] Break `route.js` into per-feature route modules
+- [ ] Move engine/resolver/feed bootstrap to `instrumentation.ts`
+- [ ] Add email verification + forgot-password flow
+- [ ] Add 2FA for admin role
+- [ ] Build referral / affiliate program (UI already hints at it)
+- [ ] Payment processor (Stripe/crypto) instead of manual deposit review
+- [ ] Mobile PWA manifest + offline shell
+
+## Next Tasks
+1. Await user confirmation on which specific updates / UI tweaks they want
+2. Apply P0/P1 items the user prioritises
+3. User initiates Emergent native deploy when satisfied
+
+## Default Credentials
+See `/app/memory/test_credentials.md`.

@@ -17,6 +17,7 @@ const VISIBLE_CANDLES = 60;
 const RIGHT_PADDING_CANDLES = 10;
 
 export default function OTCChart({
+  symbol = '',                 // current asset symbol (so we can reset pan on asset switch)
   candles = [],
   livePrice = null,
   support = null,
@@ -38,6 +39,16 @@ export default function OTCChart({
   const [pinchStart, setPinchStart] = useState(null); // {distance, count} 2-finger pinch
   // Zoom + pan state. count = visible candles, offset = candles back from latest.
   const [view, setView] = useState({ count: 60, offset: 0 });
+
+  // Reset zoom + pan whenever user switches asset OR timeframe so the chart
+  // always snaps to the latest 60 bars on the newly-selected (asset, interval).
+  // Without this, panning back on 5s and then clicking 1m or a new currency
+  // pair would leave `offset` pointing into the wrong slice → looks like
+  // candles "broke" and started again.
+  useEffect(() => {
+    setView({ count: 60, offset: 0 });
+  }, [symbol, intervalSec]);
+
   const stateRef = useRef({});
   stateRef.current = { candles, livePrice, support, resistance, activeTrades, decimals, intervalSec, payoutPct, hover, tool, shapes, drawing, view };
 

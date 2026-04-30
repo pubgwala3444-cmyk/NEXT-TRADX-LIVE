@@ -102,6 +102,52 @@ function prewarmOTC(s, def) {
   s.resistance = lastClose * (1 + (0.004 + Math.random() * 0.004));
 }
 
+// Pre-warm a LIVE asset's candle history when its very first real tick arrives.
+//
+// Without this, a freshly-picked live currency starts with zero historical
+// bars on every timeframe — so the chart appears "empty / starting from
+// candle one" and switching timeframes (5s ↔ 1m ↔ 10m) shows discontinuities
+// because each interval only has bars accumulated since pod start.
+//
+// We synthesise 80 plausible historical bars per interval around the real
+// live `basePrice`, using low-volatility GBM ticks (much tighter than OTC).
+// New live ticks then naturally extend this history, so the chart looks
+// continuous and switching timeframes never breaks.
+function prewarmLive(s, basePrice) {
+  const now = Date.now();
+  // Forex / metal volatility is much tighter than synthetic OTC. Use a small
+  // value so the synthetic backfill blends seamlessly with real ticks.
+  const vol = 0.015;
+  s.candles = EMPTY_CANDLES();
+  s.currentCandle = EMPTY_CURRENT();
+  for (const interval of INTERVALS_SEC) {
+    let p = basePrice;
+    const arr = s.candles[interval];
+    for (let i = 80; i > 0; i--) {
+      const tStart = Math.floor((now - i * interval * 1000) / (interval * 1000)) * (interval * 1000);
+      const o = p;
+      let h = o, l = o, c = o;
+      const ticks = Math.max(2, Math.min(interval * 2, 120));
+      for (let j = 0; j < ticks; j++) {
+        const dt = (interval / ticks) / 86400;
+        const z = randn();
+        c = c * Math.exp((-0.5 * vol * vol) * dt + vol * Math.sqrt(dt) * z);
+        if (c > h) h = c; if (c < l) l = c;
+      }
+      // Mean-revert each bar back toward basePrice so the synthetic history
+      // doesn't drift away from the real live price.
+      const drift = (basePrice - c) * 0.25;
+      o + drift; // no-op kept for clarity; we keep `o` original (this is the
+                 // open of the bar). The reverting effect is applied via
+                 // resetting `p` for the next bar.
+      arr.push({ time: Math.floor(tStart / 1000), open: o, high: h, low: l, close: c });
+      // Pull next bar's start back toward basePrice (75/25 blend) so the
+      // backfill clusters around the real live price.
+      p = c * 0.75 + basePrice * 0.25;
+    }
+  }
+}
+
 function initState() {
   const state = {};
   for (const [k, def] of Object.entries(OTC_ASSETS)) {
@@ -151,11 +197,20 @@ function updateCandles(s, price, now) {
 export function onLiveTick(symbol, price, t) {
   const s = global.__priceEngine.state[symbol];
   if (!s || s.kind !== 'live' || !(price > 0)) return;
-  if (!s.seeded) {
+  // Re-prewarm if this asset hasn't been pre-warmed under the current
+  // schema (older instances may have `seeded=true` but no synthetic history).
+  const needsPrewarm = !s.seeded || s.prewarmVersion !== 2;
+  if (needsPrewarm) {
     s.basePrice = price;
     s.support = price * 0.997;
     s.resistance = price * 1.003;
+    // Synthesise 80 bars of plausible history per interval around the very
+    // first real price so the chart shows a populated, continuous history
+    // immediately AND so switching between 5s / 15s / 1m / 3m / 5m / 10m
+    // never collapses to a single candle.
+    prewarmLive(s, price);
     s.seeded = true;
+    s.prewarmVersion = 2;
   }
   if (s.nudgeTicksLeft > 0) {
     price = price * (1 + s.pendingNudge);

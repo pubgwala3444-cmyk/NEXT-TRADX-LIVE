@@ -442,6 +442,7 @@ export default function TradeTerminal() {
 
           <div className="flex-1 relative">
             <OTCChart
+              symbol={asset}
               candles={candles}
               livePrice={livePrice}
               support={currentAsset?.kind === 'otc' ? support : null}

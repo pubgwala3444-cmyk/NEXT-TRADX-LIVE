@@ -36,8 +36,10 @@ if (!fs.existsSync(serverPath)) {
 const original = fs.readFileSync(serverPath, 'utf8');
 
 // Next.js 14.2 pattern: `const hostname = process.env.HOSTNAME || '0.0.0.0'`.
-// Allow different quote styles and whitespace, just in case.
-const pattern = /const\s+hostname\s*=\s*process\.env\.HOSTNAME\s*\|\|\s*['"]0\.0\.0\.0['"]\s*;?/;
+// CRITICAL: do NOT consume trailing whitespace/newline — it terminates the
+// statement. Without preserving it the next line (`let keepAliveTimeout = ...`)
+// glues onto our replacement and Node parses a SyntaxError at runtime.
+const pattern = /const +hostname *= *process\.env\.HOSTNAME *\|\| *['"]0\.0\.0\.0['"];?/;
 
 if (!pattern.test(original)) {
   console.warn(
@@ -47,7 +49,7 @@ if (!pattern.test(original)) {
   process.exit(0);
 }
 
-const patched = original.replace(pattern, "const hostname = '0.0.0.0'");
+const patched = original.replace(pattern, "const hostname = '0.0.0.0';");
 fs.writeFileSync(serverPath, patched, 'utf8');
 
 console.log('[fix-standalone-hostname] Patched .next/standalone/server.js → hostname = 0.0.0.0');

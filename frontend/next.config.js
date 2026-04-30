@@ -8,17 +8,29 @@ const nextConfig = {
     // dynamic `require()` calls inside the driver to work at runtime.
     serverComponentsExternalPackages: ['mongodb'],
 
-    // Next.js's automatic file tracer misses several files inside the
-    // `mongodb` package because the driver loads them through conditional /
-    // dynamic requires (e.g. ./mongocryptd_manager, ./client-side-encryption/*,
-    // bson native bindings, etc.). When standalone output ships without
-    // those files the API route crashes at runtime with:
-    //     Error: Cannot find module './mongocryptd_manager'
-    // -> /api/auth/login (and every other Mongo-touching route) returns 500.
+    // Next.js's automatic file tracer drops several runtime-required files
+    // from `.next/standalone/node_modules/...` because they are loaded via
+    // dynamic / conditional `require()` calls. When those files are missing
+    // the deployed pod crashes at the FIRST request with errors like:
+    //   "Cannot find module './mongocryptd_manager'"
+    //   "Cannot find module './future/route-matcher-providers/app-route-...'"
+    // and every Next.js route returns 500.
     //
-    // Forcing the tracer to copy the full mongodb + bson trees into the
-    // standalone bundle fixes the deployed runtime.
+    // We force-include:
+    //   - The full `mongodb` driver tree + its peer deps (client-side
+    //     encryption, bson, saslprep, sparse-bitfield, memory-pager).
+    //   - The full `next/dist/server` and `next/dist/shared` trees so the
+    //     route-matcher providers, render-server helpers, etc. are always
+    //     present regardless of how the tracer prunes them.
+    //
+    // We apply the include list to BOTH the API catch-all and root pages so
+    // server-rendered pages and API routes both pick up the extra files.
     outputFileTracingIncludes: {
+      '/**/*': [
+        './node_modules/next/dist/server/**/*',
+        './node_modules/next/dist/shared/**/*',
+        './node_modules/next/dist/compiled/**/*',
+      ],
       '/api/**/*': [
         './node_modules/mongodb/**/*',
         './node_modules/bson/**/*',
@@ -26,6 +38,9 @@ const nextConfig = {
         './node_modules/@mongodb-js/saslprep/**/*',
         './node_modules/sparse-bitfield/**/*',
         './node_modules/memory-pager/**/*',
+        './node_modules/next/dist/server/**/*',
+        './node_modules/next/dist/shared/**/*',
+        './node_modules/next/dist/compiled/**/*',
       ],
     },
   },

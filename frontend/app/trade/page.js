@@ -224,16 +224,26 @@ export default function TradeTerminal() {
 
   const placeTrade = async (direction) => {
     if (!user) return;
+    // Coerce + validate amount (might be empty string while user is typing)
+    const amt = Math.max(1, Math.floor(Number(amount) || 0));
+    if (amt < 1) { toast.error('Enter a valid amount'); return; }
+    if (amt !== Number(amount)) setAmount(amt);
+    // Coerce + validate duration too (typed mm:ss could be < 5s)
+    const dur = Math.max(5, Math.min(1800, Math.floor(Number(duration) || 0)));
+    if (dur !== duration) setDuration(dur);
     try {
-      const r = await api.placeTrade({ asset, direction, amount: Number(amount), durationSec: duration });
+      const r = await api.placeTrade({ asset, direction, amount: amt, durationSec: dur });
       setUser(r.user); setStoredUser(r.user);
-      toast.success(`Trade Opened: ${direction.toUpperCase()} ${asset} for $${amount}`);
+      toast.success(`Trade Opened: ${direction.toUpperCase()} ${asset} for $${amt}`);
     } catch (e) { toast.error(e.message); }
   };
 
   const balance = user ? (user.activeAccount === 'demo' ? user.demoBalance : user.liveBalance) : 0;
   const currentAsset = useMemo(() => assets.find(a => a.symbol === asset), [assets, asset]);
-  const payoutAmount = useMemo(() => +(amount * (1 + payoutPct)).toFixed(2), [amount, payoutPct]);
+  const payoutAmount = useMemo(() => {
+    const a = Number(amount) || 0;
+    return +(a * (1 + payoutPct)).toFixed(2);
+  }, [amount, payoutPct]);
   const filteredLive = useMemo(() => assets.filter(a => a.kind === 'live'), [assets]);
   const filteredOTC  = useMemo(() => assets.filter(a => a.kind === 'otc'), [assets]);
   const visibleTrades = activeTrades.filter(t => t.asset === asset);
@@ -273,19 +283,38 @@ export default function TradeTerminal() {
       <div className="bg-[#11161e] rounded-lg p-3 border border-white/5 mb-3">
         <div className="text-[10px] uppercase text-white/40 mb-1.5">Time</div>
         <div className="flex items-center justify-between">
-          <button onClick={() => { const i = DURATIONS.findIndex(d => d.v === duration); if (i > 0) setDuration(DURATIONS[i - 1].v); }} className="w-8 h-8 rounded-md bg-white/5 hover:bg-white/10 flex items-center justify-center">
+          <button onClick={() => { const i = DURATIONS.findIndex(d => d.v === duration); if (i > 0) setDuration(DURATIONS[i - 1].v); }} className="w-8 h-8 rounded-md bg-white/5 hover:bg-white/10 flex items-center justify-center" data-testid="time-minus-btn">
             <Minus className="w-4 h-4" />
           </button>
-          <div className="font-mono text-lg font-bold">
-            {Math.floor(duration / 60).toString().padStart(2, '0')}:{(duration % 60).toString().padStart(2, '0')}
-          </div>
-          <button onClick={() => { const i = DURATIONS.findIndex(d => d.v === duration); if (i < DURATIONS.length - 1) setDuration(DURATIONS[i + 1].v); }} className="w-8 h-8 rounded-md bg-white/5 hover:bg-white/10 flex items-center justify-center">
+          <input
+            type="text"
+            inputMode="numeric"
+            value={`${Math.floor(duration / 60).toString().padStart(2, '0')}:${(duration % 60).toString().padStart(2, '0')}`}
+            onChange={e => {
+              // Accept "mm:ss" or raw seconds typed in. Clamp 5s..30min.
+              const raw = e.target.value.replace(/[^0-9:]/g, '');
+              let secs;
+              if (raw.includes(':')) {
+                const [m = '0', s = '0'] = raw.split(':');
+                secs = (parseInt(m, 10) || 0) * 60 + (parseInt(s, 10) || 0);
+              } else {
+                secs = parseInt(raw, 10) || 0;
+              }
+              if (secs < 1) secs = 1;
+              if (secs > 1800) secs = 1800; // cap at 30 min
+              setDuration(secs);
+            }}
+            onBlur={() => { if (duration < 5) setDuration(5); }}
+            data-testid="time-input"
+            className="font-mono text-lg font-bold bg-transparent text-center w-20 outline-none focus:text-[#00b97a] caret-[#00b97a]"
+          />
+          <button onClick={() => { const i = DURATIONS.findIndex(d => d.v === duration); if (i < DURATIONS.length - 1) setDuration(DURATIONS[i + 1].v); }} className="w-8 h-8 rounded-md bg-white/5 hover:bg-white/10 flex items-center justify-center" data-testid="time-plus-btn">
             <Plus className="w-4 h-4" />
           </button>
         </div>
         <div className="flex gap-1 mt-2">
           {DURATIONS.map(d => (
-            <button key={d.v} onClick={() => setDuration(d.v)} className={`flex-1 text-[10px] py-1 rounded ${duration === d.v ? 'bg-[#00b97a] text-white' : 'bg-white/5 text-white/50 hover:text-white'}`}>
+            <button key={d.v} onClick={() => setDuration(d.v)} className={`flex-1 text-[10px] py-1 rounded ${duration === d.v ? 'bg-[#00b97a] text-white' : 'bg-white/5 text-white/50 hover:text-white'}`} data-testid={`time-preset-${d.v}`}>
               {d.l}
             </button>
           ))}
@@ -295,17 +324,32 @@ export default function TradeTerminal() {
       <div className="bg-[#11161e] rounded-lg p-3 border border-white/5 mb-3">
         <div className="text-[10px] uppercase text-white/40 mb-1.5">Investment</div>
         <div className="flex items-center gap-2">
-          <button onClick={() => setAmount(a => Math.max(1, a - 1))} className="w-8 h-8 rounded-md bg-white/5 hover:bg-white/10 flex items-center justify-center">
+          <button onClick={() => setAmount(a => Math.max(1, (Number(a) || 0) - 1))} className="w-8 h-8 rounded-md bg-white/5 hover:bg-white/10 flex items-center justify-center" data-testid="amount-minus-btn">
             <Minus className="w-4 h-4" />
           </button>
-          <Input type="number" value={amount} onChange={e => setAmount(Math.max(1, Number(e.target.value)))} className="bg-transparent border-none text-center font-bold text-lg flex-1" />
-          <button onClick={() => setAmount(a => a + 1)} className="w-8 h-8 rounded-md bg-white/5 hover:bg-white/10 flex items-center justify-center">
+          <Input
+            type="number"
+            inputMode="decimal"
+            min={1}
+            value={amount}
+            onChange={e => {
+              // Allow empty / 0 transiently so the user can type freely
+              // (e.g. clear the field and type 250). We only clamp on blur
+              // and again at trade submission time.
+              const v = e.target.value;
+              setAmount(v === '' ? '' : Number(v));
+            }}
+            onBlur={() => { const n = Number(amount); setAmount(Number.isFinite(n) && n >= 1 ? n : 1); }}
+            className="bg-transparent border-none text-center font-bold text-lg flex-1"
+            data-testid="amount-input"
+          />
+          <button onClick={() => setAmount(a => (Number(a) || 0) + 1)} className="w-8 h-8 rounded-md bg-white/5 hover:bg-white/10 flex items-center justify-center" data-testid="amount-plus-btn">
             <Plus className="w-4 h-4" />
           </button>
         </div>
         <div className="flex gap-1 mt-2">
           {[1, 10, 50, 100, 500].map(v => (
-            <button key={v} onClick={() => setAmount(v)} className="flex-1 text-[10px] py-1 rounded bg-white/5 hover:bg-white/10 text-white/60">${v}</button>
+            <button key={v} onClick={() => setAmount(v)} className="flex-1 text-[10px] py-1 rounded bg-white/5 hover:bg-white/10 text-white/60" data-testid={`amount-preset-${v}`}>${v}</button>
           ))}
         </div>
       </div>
@@ -335,10 +379,6 @@ export default function TradeTerminal() {
           <QuotexLogo />
         </div>
         <div className="flex items-center gap-2">
-          <Button size="icon" variant="ghost" className="text-white/60 hover:text-white relative">
-            <Bell className="w-5 h-5" />
-            <span className="absolute -top-0.5 -right-0.5 w-4 h-4 rounded-full bg-[#ff5555] text-[10px] font-bold flex items-center justify-center">3</span>
-          </Button>
           <AccountSwitcher
             user={user}
             onUserUpdate={(u) => { setUser(u); setStoredUser(u); }}
@@ -369,10 +409,6 @@ export default function TradeTerminal() {
         <div className="flex items-center gap-1">
           <button onClick={() => setDepositOpen(true)} className="h-8 px-3 bg-[#00b97a] hover:bg-[#00a86d] text-white text-xs font-bold rounded-md flex items-center">
             <Plus className="w-3.5 h-3.5 mr-0.5" /> Deposit
-          </button>
-          <button className="w-8 h-8 rounded-md hover:bg-white/5 flex items-center justify-center relative">
-            <Bell className="w-4 h-4 text-white/60" />
-            <span className="absolute top-0 right-0 w-3.5 h-3.5 rounded-full bg-[#ff5555] text-[8px] font-bold flex items-center justify-center">3</span>
           </button>
         </div>
       </header>
@@ -523,9 +559,25 @@ export default function TradeTerminal() {
                   <button onClick={() => { const i = DURATIONS.findIndex(d => d.v === duration); if (i > 0) setDuration(DURATIONS[i - 1].v); }} className="w-6 h-6 rounded-full bg-white/5 active:bg-white/10 flex items-center justify-center">
                     <Minus className="w-3.5 h-3.5" />
                   </button>
-                  <div className="font-mono text-base font-bold">
-                    00:{Math.floor(duration / 60).toString().padStart(2, '0')}:{(duration % 60).toString().padStart(2, '0')}
-                  </div>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={`00:${Math.floor(duration / 60).toString().padStart(2, '0')}:${(duration % 60).toString().padStart(2, '0')}`}
+                    onChange={e => {
+                      const raw = e.target.value.replace(/[^0-9:]/g, '');
+                      const parts = raw.split(':').filter(Boolean);
+                      let secs = 0;
+                      if (parts.length === 1) secs = parseInt(parts[0], 10) || 0;
+                      else if (parts.length === 2) secs = (parseInt(parts[0], 10) || 0) * 60 + (parseInt(parts[1], 10) || 0);
+                      else if (parts.length >= 3) secs = (parseInt(parts[0], 10) || 0) * 3600 + (parseInt(parts[1], 10) || 0) * 60 + (parseInt(parts[2], 10) || 0);
+                      if (secs < 1) secs = 1;
+                      if (secs > 1800) secs = 1800;
+                      setDuration(secs);
+                    }}
+                    onBlur={() => { if (duration < 5) setDuration(5); }}
+                    data-testid="mobile-time-input"
+                    className="font-mono text-base font-bold bg-transparent text-center w-24 outline-none focus:text-[#00b97a] caret-[#00b97a]"
+                  />
                   <button onClick={() => { const i = DURATIONS.findIndex(d => d.v === duration); if (i < DURATIONS.length - 1) setDuration(DURATIONS[i + 1].v); }} className="w-6 h-6 rounded-full bg-white/5 active:bg-white/10 flex items-center justify-center">
                     <Plus className="w-3.5 h-3.5" />
                   </button>
@@ -535,11 +587,26 @@ export default function TradeTerminal() {
               <div className="relative rounded-md border border-white/10 bg-[#11161e] px-2 pt-2 pb-1">
                 <span className="absolute -top-1.5 left-2 text-[9px] text-white/40 uppercase bg-[#0a0d12] px-1">Investment</span>
                 <div className="flex items-center justify-between">
-                  <button onClick={() => setAmount(a => Math.max(1, a - 1))} className="w-6 h-6 rounded-full bg-white/5 active:bg-white/10 flex items-center justify-center">
+                  <button onClick={() => setAmount(a => Math.max(1, (Number(a) || 0) - 1))} className="w-6 h-6 rounded-full bg-white/5 active:bg-white/10 flex items-center justify-center">
                     <Minus className="w-3.5 h-3.5" />
                   </button>
-                  <div className="font-bold text-base">{amount} $</div>
-                  <button onClick={() => setAmount(a => a + 1)} className="w-6 h-6 rounded-full bg-white/5 active:bg-white/10 flex items-center justify-center">
+                  <div className="flex items-baseline gap-0.5">
+                    <input
+                      type="number"
+                      inputMode="decimal"
+                      min={1}
+                      value={amount}
+                      onChange={e => {
+                        const v = e.target.value;
+                        setAmount(v === '' ? '' : Number(v));
+                      }}
+                      onBlur={() => { const n = Number(amount); setAmount(Number.isFinite(n) && n >= 1 ? n : 1); }}
+                      data-testid="mobile-amount-input"
+                      className="font-bold text-base bg-transparent text-center w-14 outline-none focus:text-[#00b97a] caret-[#00b97a]"
+                    />
+                    <span className="text-base font-bold">$</span>
+                  </div>
+                  <button onClick={() => setAmount(a => (Number(a) || 0) + 1)} className="w-6 h-6 rounded-full bg-white/5 active:bg-white/10 flex items-center justify-center">
                     <Plus className="w-3.5 h-3.5" />
                   </button>
                 </div>

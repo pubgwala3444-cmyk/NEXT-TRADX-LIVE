@@ -117,17 +117,17 @@ export default function AccountSwitcher({ user, onUserUpdate, onOpenDeposit, onO
 
           {/* RIGHT: Action menu */}
           <div className="w-full sm:w-44 p-3 flex flex-col text-sm">
-            <NavBtn><Receipt className="w-4 h-4" /> Transactions</NavBtn>
-            <NavBtn><Activity className="w-4 h-4" /> Trades</NavBtn>
-            <NavBtn><User className="w-4 h-4" /> My account</NavBtn>
+            <NavBtn onClick={() => { setOpen(false); router.push('/transactions'); }} data-testid="acct-nav-transactions"><Receipt className="w-4 h-4" /> Transactions</NavBtn>
+            <NavBtn onClick={() => { setOpen(false); router.push('/trades-history'); }} data-testid="acct-nav-trades"><Activity className="w-4 h-4" /> Trades</NavBtn>
+            <NavBtn onClick={() => { setOpen(false); router.push('/account'); }} data-testid="acct-nav-account"><User className="w-4 h-4" /> My account</NavBtn>
             {user.role === 'admin' && (
-              <NavBtn onClick={() => router.push('/admin')} className="text-[#00b97a]">
+              <NavBtn onClick={() => { setOpen(false); router.push('/admin'); }} className="text-[#00b97a]" data-testid="acct-nav-admin">
                 <Activity className="w-4 h-4" /> Admin
               </NavBtn>
             )}
             <div className="flex-1" />
             <div className="h-px bg-white/5 my-2" />
-            <NavBtn onClick={logout} className="text-[#ff5555]"><LogOut className="w-4 h-4" /> Logout</NavBtn>
+            <NavBtn onClick={logout} className="text-[#ff5555]" data-testid="acct-nav-logout"><LogOut className="w-4 h-4" /> Logout</NavBtn>
           </div>
         </div>
       </PopoverContent>
@@ -135,9 +135,9 @@ export default function AccountSwitcher({ user, onUserUpdate, onOpenDeposit, onO
   );
 }
 
-function NavBtn({ children, className = '', onClick }) {
+function NavBtn({ children, className = '', onClick, 'data-testid': testId }) {
   return (
-    <button onClick={onClick} className={`flex items-center gap-2 px-3 py-2 rounded-md hover:bg-white/5 text-left text-white/80 ${className}`}>
+    <button onClick={onClick} data-testid={testId} className={`flex items-center gap-2 px-3 py-2 rounded-md hover:bg-white/5 text-left text-white/80 ${className}`}>
       {children}
     </button>
   );

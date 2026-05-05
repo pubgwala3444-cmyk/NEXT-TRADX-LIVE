@@ -300,7 +300,11 @@ export default function TradeTerminal() {
   }, [amount, payoutPct]);
   const filteredLive = useMemo(() => assets.filter(a => a.kind === 'live'), [assets]);
   const filteredOTC  = useMemo(() => assets.filter(a => a.kind === 'otc'), [assets]);
-  const visibleTrades = activeTrades.filter(t => t.asset === asset);
+  // Decorate each on-asset active trade with its global card index (matching
+  // the #N badge in the sidebar) so the chart overlay can draw the same tag.
+  const visibleTrades = activeTrades
+    .map((t, i) => ({ ...t, _idx: i + 1 }))
+    .filter(t => t.asset === asset);
 
   const onShapeAdd = (sh) => setShapes(arr => [...arr, sh]);
   const onShapeRemove = (id) => setShapes(arr => arr.filter(s => s.id !== id));
@@ -696,9 +700,26 @@ export default function TradeTerminal() {
         <aside className="hidden md:flex w-80 border-l border-white/5 bg-[#0a0d12] flex-col">
           <TradeForm />
 
+          {/* All active trades — each gets its own card so traders can see and
+              track multiple simultaneous positions. The card index (#1, #2,
+              ...) matches the small numbered tag drawn on the chart so the
+              user can correlate each card with its on-chart marker. */}
           {activeTrades.length > 0 && (
-            <div className="border-b border-white/5 px-4 py-3">
-              <ActiveTradeCard trade={activeTrades[0]} live={livePrice} pct={payoutPct} />
+            <div className="border-b border-white/5 px-3 py-3 space-y-2 max-h-[40%] overflow-y-auto scrollbar-thin" data-testid="active-trades-stack">
+              <div className="flex items-center justify-between text-[10px] uppercase tracking-wider text-white/40 px-1">
+                <span>Active trades</span>
+                <span className="text-[#f0b90b] font-bold">{activeTrades.length}</span>
+              </div>
+              {activeTrades.map((t, i) => (
+                <ActiveTradeCard
+                  key={t.id}
+                  trade={t}
+                  live={t.asset === asset ? livePrice : null}
+                  pct={payoutPct}
+                  index={i + 1}
+                  isCurrent={t.asset === asset}
+                />
+              ))}
             </div>
           )}
 
@@ -714,7 +735,6 @@ export default function TradeTerminal() {
                 </div>
               ) : (
                 <>
-                  {activeTrades.slice(1).map(t => <TradeRow key={t.id} t={t} live={t.asset === asset ? livePrice : null} pct={payoutPct} active />)}
                   {history.map(t => <TradeRow key={t.id} t={t} pct={payoutPct} />)}
                 </>
               )}
@@ -989,31 +1009,52 @@ function ToolBtn({ icon: Icon, title, active, onClick }) {
   );
 }
 
-function ActiveTradeCard({ trade: t, live, pct }) {
+function ActiveTradeCard({ trade: t, live, pct, index, isCurrent = true }) {
   const winning = (t.direction === 'up' && (live || 0) > t.entryPrice) || (t.direction === 'down' && (live || 0) < t.entryPrice);
-  const pnl = winning ? +(t.amount * pct).toFixed(2) : -t.amount;
+  // Without a live price (other-asset trade) we can only show the stake exposure,
+  // not a real-time PnL guess — show a neutral "—" instead.
+  const hasLive = live !== null && live !== undefined && live > 0;
+  const pnl = !hasLive ? 0 : (winning ? +(t.amount * pct).toFixed(2) : -t.amount);
   const remaining = Math.max(0, Math.ceil((new Date(t.expiresAt).getTime() - Date.now()) / 1000));
+  const dirCls = t.direction === 'up' ? 'text-[#00b97a]' : 'text-[#ff5555]';
+  const dirBg  = t.direction === 'up' ? 'bg-[#00b97a]/15' : 'bg-[#ff5555]/15';
   return (
-    <div className="bg-[#11161e] border border-white/5 rounded-lg p-3">
-      <div className="flex justify-between text-xs mb-2">
-        <span className="text-white/50">Live trade</span>
-        <span className={`font-bold ${t.direction === 'up' ? 'text-[#00b97a]' : 'text-[#ff5555]'}`}>
+    <div
+      className={`bg-[#11161e] border rounded-lg p-3 transition ${isCurrent ? 'border-white/10' : 'border-white/5 opacity-90'}`}
+      data-testid={`active-trade-card-${t.id}`}
+    >
+      <div className="flex justify-between items-center text-xs mb-2">
+        <div className="flex items-center gap-1.5">
+          {typeof index === 'number' && (
+            <span className="inline-flex items-center justify-center w-5 h-5 rounded-md bg-[#f0b90b]/20 text-[#f0b90b] text-[10px] font-extrabold" data-testid={`active-trade-index-${t.id}`}>
+              #{index}
+            </span>
+          )}
+          <span className="text-white/50 uppercase text-[10px] tracking-wider">{isCurrent ? 'Live' : 'Other pair'}</span>
+        </div>
+        <span className={`font-bold ${dirCls}`}>
           {t.direction === 'up' ? '▲ UP' : '▼ DOWN'} · {t.asset}
         </span>
       </div>
-      <div className="grid grid-cols-2 gap-2 mb-2">
+      <div className="grid grid-cols-3 gap-2 mb-2">
         <div>
           <div className="text-[10px] text-white/40 uppercase">Stake</div>
           <div className="font-bold">${t.amount}</div>
+        </div>
+        <div>
+          <div className="text-[10px] text-white/40 uppercase">Entry</div>
+          <div className="font-mono text-[11px]">{Number(t.entryPrice).toFixed(5)}</div>
         </div>
         <div>
           <div className="text-[10px] text-white/40 uppercase">Time left</div>
           <div className="font-bold text-[#f0b90b]">{remaining}s</div>
         </div>
       </div>
-      <div className={`flex items-center justify-between rounded-md px-2 py-1.5 ${winning ? 'bg-[#00b97a]/15' : 'bg-[#ff5555]/15'}`}>
-        <span className={`text-xs ${winning ? 'text-[#00b97a]' : 'text-[#ff5555]'}`}>P/L</span>
-        <span className={`font-extrabold ${winning ? 'text-[#00b97a]' : 'text-[#ff5555]'}`}>{winning ? '+' : ''}${pnl.toFixed(2)}</span>
+      <div className={`flex items-center justify-between rounded-md px-2 py-1.5 ${hasLive ? dirBg : 'bg-white/5'}`}>
+        <span className={`text-xs ${hasLive ? dirCls : 'text-white/40'}`}>P/L</span>
+        <span className={`font-extrabold ${hasLive ? dirCls : 'text-white/40'}`}>
+          {hasLive ? `${winning ? '+' : ''}$${pnl.toFixed(2)}` : '—'}
+        </span>
       </div>
     </div>
   );

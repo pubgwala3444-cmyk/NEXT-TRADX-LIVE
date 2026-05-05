@@ -235,8 +235,22 @@ export default function OTCChart({
       ctx.fillText(fmt(s.livePrice), chartW + 6, y);
     }
 
-    // Active trade overlays — dotted markers connecting entry & expiry
+    // Active trade overlays — multiple trades on the same asset can collide
+    // visually (same entry price or overlapping expiry windows). To keep them
+    // legible we:
+    //   - draw a small numbered badge at the entry dot matching the sidebar
+    //     card #1, #2, ... (uses t._idx threaded through from the parent)
+    //   - stagger PnL pills vertically per trade so they don't sit on top of
+    //     each other
+    //   - use a small index-based label offset for BEGIN/END so they don't
+    //     stack at the same Y when several trades start within the same bar
+    let _tradeRowIdx = 0;
     for (const t of s.activeTrades || []) {
+      _tradeRowIdx += 1;
+      const stackOffset = (_tradeRowIdx - 1) * 26; // px between PnL pills
+      const labelStaggerY = ((_tradeRowIdx - 1) % 3) * 18; // 0/18/36 px down
+      const tradeIdx = t._idx ?? _tradeRowIdx;
+
       const entrySec = Math.floor(new Date(t.openedAt).getTime() / 1000);
       const expSec = Math.floor(new Date(t.expiresAt).getTime() / 1000);
       const xEntry = timeToX(entrySec), xExp = timeToX(expSec);
@@ -263,13 +277,22 @@ export default function OTCChart({
       ctx.beginPath(); ctx.moveTo(xFrom, yEntry); ctx.lineTo(xTo, yEntry); ctx.stroke();
       ctx.setLineDash([]); ctx.lineWidth = 1;
 
-      // Small filled dot at entry point
+      // Small filled dot at entry point + numbered badge above-right
       if (xEntry > 0 && xEntry < chartW) {
         ctx.fillStyle = dirColor;
         ctx.beginPath(); ctx.arc(xEntry, yEntry, 5, 0, Math.PI * 2); ctx.fill();
         ctx.strokeStyle = '#0c1015'; ctx.lineWidth = 2;
         ctx.beginPath(); ctx.arc(xEntry, yEntry, 5, 0, Math.PI * 2); ctx.stroke();
         ctx.lineWidth = 1;
+
+        // #N badge — links chart trade to sidebar card #N
+        const idxTxt = `#${tradeIdx}`;
+        ctx.font = 'bold 10px Inter';
+        const idxW = ctx.measureText(idxTxt).width + 8;
+        ctx.fillStyle = '#f0b90b';
+        roundRect(ctx, xEntry + 8, yEntry - 22, idxW, 14, 3); ctx.fill();
+        ctx.fillStyle = '#0c1015'; ctx.textBaseline = 'middle';
+        ctx.fillText(idxTxt, xEntry + 12, yEntry - 15);
       }
       // Small filled dot at expiry point (outline only — hollow)
       if (xExp > 0 && xExp < chartW) {
@@ -280,20 +303,20 @@ export default function OTCChart({
         ctx.lineWidth = 1;
       }
 
-      // Section labels with backdrop pills
+      // Section labels with backdrop pills (staggered vertically per trade)
       ctx.font = 'bold 9px Inter';
       ctx.textBaseline = 'middle';
       if (xEntry > 4 && xEntry < chartW - 4) {
-        const txt = 'BEGIN';
+        const txt = `BEGIN #${tradeIdx}`;
         ctx.fillStyle = 'rgba(255,255,255,0.85)';
-        roundRect(ctx, xEntry + 4, 6, ctx.measureText(txt).width + 10, 16, 3); ctx.fill();
-        ctx.fillStyle = '#0c1015'; ctx.fillText(txt, xEntry + 9, 14);
+        roundRect(ctx, xEntry + 4, 6 + labelStaggerY, ctx.measureText(txt).width + 10, 16, 3); ctx.fill();
+        ctx.fillStyle = '#0c1015'; ctx.fillText(txt, xEntry + 9, 14 + labelStaggerY);
       }
       if (xExp > 4 && xExp < chartW - 4) {
-        const txt = 'END';
+        const txt = `END #${tradeIdx}`;
         ctx.fillStyle = '#f0b90b';
-        roundRect(ctx, xExp + 4, 6, ctx.measureText(txt).width + 10, 16, 3); ctx.fill();
-        ctx.fillStyle = '#0c1015'; ctx.fillText(txt, xExp + 9, 14);
+        roundRect(ctx, xExp + 4, 6 + labelStaggerY, ctx.measureText(txt).width + 10, 16, 3); ctx.fill();
+        ctx.fillStyle = '#0c1015'; ctx.fillText(txt, xExp + 9, 14 + labelStaggerY);
       }
       // Entry price right-axis tag
       ctx.fillStyle = 'white'; ctx.fillRect(chartW + 1, yEntry - 8, PRICE_AXIS_W - 2, 16);
@@ -303,11 +326,13 @@ export default function OTCChart({
       const pnl = winning ? +(t.amount * s.payoutPct).toFixed(2) : -t.amount;
       const remaining = Math.max(0, Math.ceil((new Date(t.expiresAt).getTime() - Date.now()) / 1000));
       const arrow = t.direction === 'up' ? '▲' : '▼';
-      const txt = `${arrow} ${winning ? '+' : ''}${pnl.toFixed(2)}$`;
+      const txt = `#${tradeIdx} ${arrow} ${winning ? '+' : ''}${pnl.toFixed(2)}$`;
       ctx.font = 'bold 11px Inter';
       const tw = ctx.measureText(txt).width + 16;
       const bx = Math.min(chartW - tw - 2, Math.max(2, xExp - tw - 6));
-      const by = Math.max(2, Math.min(chartH - 26, yEntry - 12));
+      // Stagger the PnL pill so multiple simultaneous trades don't draw on top
+      // of each other — distribute upward from the entry line.
+      const by = Math.max(2, Math.min(chartH - 26, yEntry - 12 - stackOffset));
       ctx.fillStyle = winning ? '#00b97a' : '#ff5555';
       ctx.shadowColor = winning ? 'rgba(0,185,122,0.5)' : 'rgba(255,85,85,0.5)';
       ctx.shadowBlur = 12;

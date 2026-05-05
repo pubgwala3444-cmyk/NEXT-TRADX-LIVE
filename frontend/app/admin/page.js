@@ -240,10 +240,10 @@ export default function AdminPanel() {
             <UsersView users={users} adjustBalance={adjustBalance} />
           )}
           {view === 'deposits' && (
-            <PaymentTable items={pendingDeposits} type="deposit" onAction={handleDeposit} />
+            <PaymentsView type="deposit" pendingCount={pendingDeposits.length} onAction={handleDeposit} />
           )}
           {view === 'withdrawals' && (
-            <PaymentTable items={pendingWithdrawals} type="withdrawal" onAction={handleWithdrawal} />
+            <PaymentsView type="withdrawal" pendingCount={pendingWithdrawals.length} onAction={handleWithdrawal} />
           )}
           {view === 'trades' && (
             <TradesView openTrades={openTrades} closedTrades={closedTrades} onForce={force} />
@@ -729,17 +729,110 @@ function UsersView({ users, adjustBalance }) {
   );
 }
 
-function PaymentTable({ items, type, onAction }) {
+// PaymentsView wraps PaymentTable with a 3-tab status switcher (Pending /
+// Approved / Rejected) and fetches the corresponding history slice from the
+// admin API. Each row in approved/rejected views replaces the Approve/Reject
+// buttons with a status pill + admin note + resolved-at timestamp, so the
+// admin gets a complete audit trail per page.
+function PaymentsView({ type, pendingCount, onAction }) {
+  const [tab, setTab] = useState('pending'); // pending | approved | rejected
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      try {
+        const r = type === 'deposit'
+          ? await api.adminDeposits(tab)
+          : await api.adminWithdrawals(tab);
+        if (cancelled) return;
+        setItems(r.deposits || r.withdrawals || []);
+      } catch (e) {
+        if (!cancelled) toast.error(e.message || 'Failed to load history');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [type, tab, refreshKey]);
+
+  // After approve/reject, refresh both the current tab AND the parent's
+  // pending counter (which is what the sidebar shows).
+  const handleAction = async (id, action) => {
+    await onAction(id, action);
+    setRefreshKey(k => k + 1);
+  };
+
+  const stats = {
+    pending: pendingCount ?? 0,
+    approved: tab === 'approved' ? items.length : null,
+    rejected: tab === 'rejected' ? items.length : null,
+  };
+
+  return (
+    <div className="space-y-4" data-testid={`admin-${type}-view`}>
+      <div className="flex flex-wrap items-center gap-2">
+        <TabPill active={tab === 'pending'} onClick={() => setTab('pending')} count={stats.pending} testid={`admin-${type}-tab-pending`}>
+          <Clock className="w-3 h-3 mr-1 inline" /> Pending
+        </TabPill>
+        <TabPill active={tab === 'approved'} onClick={() => setTab('approved')} count={tab === 'approved' ? items.length : undefined} testid={`admin-${type}-tab-approved`}>
+          <Check className="w-3 h-3 mr-1 inline" /> Approved
+        </TabPill>
+        <TabPill active={tab === 'rejected'} onClick={() => setTab('rejected')} count={tab === 'rejected' ? items.length : undefined} testid={`admin-${type}-tab-rejected`}>
+          <X className="w-3 h-3 mr-1 inline" /> Rejected
+        </TabPill>
+        <div className="flex-1" />
+        <button
+          onClick={() => setRefreshKey(k => k + 1)}
+          className="text-[11px] text-white/50 hover:text-white flex items-center gap-1 px-2 py-1 rounded hover:bg-white/5"
+          data-testid={`admin-${type}-refresh`}
+        >
+          <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} /> Refresh
+        </button>
+      </div>
+
+      {loading ? (
+        <div className="bg-[#11161e] border border-white/5 rounded-xl p-12 text-center text-white/40 text-sm">Loading…</div>
+      ) : (
+        <PaymentTable items={items} type={type} onAction={handleAction} mode={tab} />
+      )}
+    </div>
+  );
+}
+
+function TabPill({ children, active, onClick, count, testid }) {
+  return (
+    <button
+      onClick={onClick}
+      data-testid={testid}
+      className={`px-3 py-1.5 rounded-md text-xs font-bold transition ${
+        active ? 'bg-[#1a8eff] text-white' : 'bg-white/5 text-white/60 hover:bg-white/10'
+      }`}
+    >
+      {children}
+      {typeof count === 'number' && (
+        <span className={`ml-1.5 px-1.5 py-0.5 rounded text-[9px] ${active ? 'bg-white/20' : 'bg-white/10'}`}>{count}</span>
+      )}
+    </button>
+  );
+}
+
+function PaymentTable({ items, type, onAction, mode = 'pending' }) {
   if (!items?.length) {
-    return <div className="bg-[#11161e] border border-white/5 rounded-xl p-12 text-center text-white/40 text-sm">No pending {type} requests.</div>;
+    const label = mode === 'pending' ? `pending ${type} requests` : `${mode} ${type}s`;
+    return <div className="bg-[#11161e] border border-white/5 rounded-xl p-12 text-center text-white/40 text-sm" data-testid={`admin-${type}-empty`}>No {label}.</div>;
   }
   return (
-    <div className="space-y-3">
+    <div className="space-y-3" data-testid={`admin-${type}-list`}>
       {items.map(it => {
         const data = it.methodData || {};
         const screenshot = data.screenshot;
+        const isPending = it.status === 'pending';
         return (
-          <div key={it.id} className="bg-[#11161e] border border-white/5 rounded-xl p-4 flex flex-col md:flex-row gap-4">
+          <div key={it.id} className="bg-[#11161e] border border-white/5 rounded-xl p-4 flex flex-col md:flex-row gap-4" data-testid={`admin-${type}-row-${it.id}`}>
             {screenshot && (
               <a href={screenshot} target="_blank" rel="noreferrer" className="shrink-0">
                 <img src={screenshot} alt="Transaction screenshot" className="w-full md:w-32 h-32 object-cover rounded-lg border border-white/10 hover:border-[#1a8eff] transition" />
@@ -747,12 +840,20 @@ function PaymentTable({ items, type, onAction }) {
             )}
             <div className="flex-1 min-w-0">
               <div className="flex items-start justify-between gap-3 mb-2">
-                <div>
-                  <div className="font-bold text-sm uppercase">{it.method}</div>
-                  <div className="text-[10px] text-white/40 font-mono">User #{shortId(it.userId)} · {new Date(it.createdAt).toLocaleString()}</div>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <div className="font-bold text-sm uppercase">{it.method}</div>
+                    {!isPending && <PaymentStatusPill status={it.status} />}
+                  </div>
+                  <div className="text-[10px] text-white/40 font-mono">User #{shortId(it.userId)} · Requested {new Date(it.createdAt).toLocaleString()}</div>
+                  {!isPending && it.resolvedAt && (
+                    <div className="text-[10px] text-white/40 font-mono">Resolved {new Date(it.resolvedAt).toLocaleString()}</div>
+                  )}
                 </div>
-                <div className="text-right">
-                  <div className="text-lg font-extrabold font-mono text-[#00b97a]">${Number(it.amount).toFixed(2)}</div>
+                <div className="text-right shrink-0">
+                  <div className={`text-lg font-extrabold font-mono ${type === 'deposit' ? 'text-[#00b97a]' : 'text-[#22d3ee]'}`}>
+                    {type === 'deposit' ? '+' : '−'}${Number(it.amount).toFixed(2)}
+                  </div>
                   <div className="text-[10px] text-white/40">USD</div>
                 </div>
               </div>
@@ -766,15 +867,38 @@ function PaymentTable({ items, type, onAction }) {
                     </div>
                   ))}
               </div>
-              <div className="flex justify-end gap-2">
-                <Button size="sm" className="h-8 px-3 text-xs bg-[#00b97a] hover:bg-[#00a86d]" onClick={() => onAction(it.id, 'approve')}>Approve</Button>
-                <Button size="sm" className="h-8 px-3 text-xs bg-[#ff5555] hover:bg-[#ee4444]" onClick={() => onAction(it.id, 'reject')}>Reject</Button>
-              </div>
+              {isPending ? (
+                <div className="flex justify-end gap-2">
+                  <Button size="sm" data-testid={`admin-${type}-approve-${it.id}`} className="h-8 px-3 text-xs bg-[#00b97a] hover:bg-[#00a86d]" onClick={() => onAction(it.id, 'approve')}>Approve</Button>
+                  <Button size="sm" data-testid={`admin-${type}-reject-${it.id}`} className="h-8 px-3 text-xs bg-[#ff5555] hover:bg-[#ee4444]" onClick={() => onAction(it.id, 'reject')}>Reject</Button>
+                </div>
+              ) : (
+                it.adminNote && (
+                  <div className="bg-[#0c1015] border border-white/5 rounded-md px-3 py-2">
+                    <div className="text-[9px] uppercase tracking-wider text-white/40">Admin note</div>
+                    <div className="text-xs text-white/80">{it.adminNote}</div>
+                  </div>
+                )
+              )}
             </div>
           </div>
         );
       })}
     </div>
+  );
+}
+
+function PaymentStatusPill({ status }) {
+  const cfg = {
+    approved: { label: 'Approved', cls: 'bg-[#00b97a]/15 text-[#00b97a]', Icon: Check },
+    rejected: { label: 'Rejected', cls: 'bg-[#ff5555]/15 text-[#ff5555]', Icon: X },
+    pending:  { label: 'Pending',  cls: 'bg-[#f0b90b]/15 text-[#f0b90b]', Icon: Clock },
+  }[status] || { label: status, cls: 'bg-white/10 text-white/60', Icon: Clock };
+  const I = cfg.Icon;
+  return (
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase ${cfg.cls}`}>
+      <I className="w-3 h-3" /> {cfg.label}
+    </span>
   );
 }
 

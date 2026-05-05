@@ -877,6 +877,9 @@ video {
 .mt-auto {
   margin-top: auto;
 }
+.ml-1\.5 {
+  margin-left: 0.375rem;
+}
 .block {
   display: block;
 }

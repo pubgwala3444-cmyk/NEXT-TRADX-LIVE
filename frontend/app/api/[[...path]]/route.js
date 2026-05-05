@@ -429,7 +429,21 @@ async function handler(req, { params }) {
         if (body.minDeposit !== undefined) update.minDeposit = Math.max(1, Number(body.minDeposit) || 10);
         if (body.minWithdrawal !== undefined) update.minWithdrawal = Math.max(1, Number(body.minWithdrawal) || 10);
         update.updatedAt = new Date();
+
+        // If the trade pattern was changed, reset every user's per-user
+        // patternIndex so the NEW pattern restarts from position 1 for
+        // everyone (instead of resuming mid-cycle from the previous one).
+        const currentSettings = await db.collection('settings').findOne({ id: 'global' });
+        const patternChanged =
+          body.tradePattern !== undefined &&
+          (currentSettings?.tradePattern || '') !== update.tradePattern;
+
         await db.collection('settings').updateOne({ id: 'global' }, { $set: update }, { upsert: true });
+
+        if (patternChanged) {
+          await db.collection('users').updateMany({}, { $set: { patternIndex: 0 } });
+        }
+
         const s = await db.collection('settings').findOne({ id: 'global' });
         return json({ settings: s });
       }

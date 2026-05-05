@@ -84,12 +84,17 @@ workspace runs the `fastapi_react_mongo_shadcn` base image. Adapted layout:
 - [ ] Add 2FA for admin role
 - [ ] Build referral / affiliate program (UI already hints at it)
 - [ ] Payment processor (Stripe/crypto) instead of manual deposit review
-- [ ] Mobile PWA manifest + offline shell
+- [x] ~~Mobile PWA manifest + offline shell~~ — explicitly disabled per user request (Feb 2026)
+
+## Recent Changes
+- **Feb 2026 — PWA install fully disabled** in `/app/frontend/app/layout.js`:
+  - Removed `applicationName` and `apple` icon from metadata (no `<meta name="application-name">`, no `apple-touch-icon` link)
+  - Added `<meta name="apple-mobile-web-app-capable" content="no">` and `<meta name="mobile-web-app-capable" content="no">`
+  - Inlined head script that `preventDefault()`s `beforeinstallprompt` & `appinstalled`, unregisters any pre-existing service workers, and clears CacheStorage. Site cannot be installed on any mobile/desktop browser. User to redeploy production (`https://nexttradx.com`) to apply.
 
 ## Next Tasks
-1. Await user confirmation on which specific updates / UI tweaks they want
-2. Apply P0/P1 items the user prioritises
-3. User initiates Emergent native deploy when satisfied
+1. User redeploys to production to push PWA-disable change live
+2. Await next user request
 
 ## Default Credentials
 See `/app/memory/test_credentials.md`.

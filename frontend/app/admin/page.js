@@ -986,19 +986,25 @@ function TradesTable({ trades, onForce, live, closed }) {
 
 function TradesView({ openTrades, closedTrades, onForce }) {
   const [q, setQ] = useState('');
-  const [range, setRange] = useState('all'); // daily | weekly | monthly | all
+  const [range, setRange] = useState('daily'); // daily | weekly | monthly | yearly | all
 
   const now = Date.now();
   const cutoff = range === 'daily' ? now - 24 * 3600e3
     : range === 'weekly' ? now - 7 * 24 * 3600e3
     : range === 'monthly' ? now - 30 * 24 * 3600e3
+    : range === 'yearly' ? now - 365 * 24 * 3600e3
     : 0;
 
+  // Range-only filter (used for the summary stats so the count reflects the
+  // selected window even when the search box is empty / non-empty).
+  const inRange = (t) => {
+    if (!cutoff) return true;
+    const when = new Date(t.openedAt || t.resolvedAt || t.createdAt || 0).getTime();
+    return when >= cutoff;
+  };
+
   const filterRow = (t) => {
-    if (cutoff) {
-      const when = new Date(t.openedAt || t.resolvedAt || t.createdAt || 0).getTime();
-      if (when < cutoff) return false;
-    }
+    if (!inRange(t)) return false;
     if (!q) return true;
     const s = q.toLowerCase();
     return shortId(t.userId).toLowerCase().includes(s)
@@ -1009,6 +1015,36 @@ function TradesView({ openTrades, closedTrades, onForce }) {
 
   const openFiltered = openTrades.filter(filterRow);
   const closedFiltered = closedTrades.filter(filterRow);
+
+  // Summary stats — always computed against the SELECTED RANGE (search box
+  // ignored) so admins always see "X trades today / this week / ..." totals
+  // at the top of the page regardless of any text filter.
+  const summary = useMemo(() => {
+    const openInRange   = openTrades.filter(inRange);
+    const closedInRange = closedTrades.filter(inRange);
+    const wins   = closedInRange.filter(t => t.outcome === 'win').length;
+    const losses = closedInRange.filter(t => t.outcome === 'loss').length;
+    const volume = [...openInRange, ...closedInRange]
+      .reduce((acc, t) => acc + (Number(t.amount) || 0), 0);
+    const netPnl = closedInRange.reduce((acc, t) => acc + (Number(t.pnl) || 0), 0);
+    const winRate = (wins + losses) > 0 ? Math.round((wins / (wins + losses)) * 100) : 0;
+    return {
+      total:  openInRange.length + closedInRange.length,
+      open:   openInRange.length,
+      closed: closedInRange.length,
+      wins,
+      losses,
+      volume,
+      netPnl,
+      winRate,
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openTrades, closedTrades, range]);
+
+  const rangeLabel = {
+    daily: 'Today', weekly: 'This week', monthly: 'This month',
+    yearly: 'This year', all: 'All time',
+  }[range];
 
   return (
     <div className="space-y-4">
@@ -1024,16 +1060,18 @@ function TradesView({ openTrades, closedTrades, onForce }) {
           />
           {q && <button onClick={() => setQ('')} className="text-white/40 hover:text-white text-xs">Clear</button>}
         </div>
-        <div className="flex items-center gap-1 bg-[#11161e] border border-white/10 rounded-lg p-1">
+        <div className="flex items-center gap-1 bg-[#11161e] border border-white/10 rounded-lg p-1" data-testid="admin-trades-range-selector">
           {[
-            { v: 'daily', l: 'Daily' },
-            { v: 'weekly', l: 'Weekly' },
+            { v: 'daily',   l: 'Daily' },
+            { v: 'weekly',  l: 'Weekly' },
             { v: 'monthly', l: 'Monthly' },
-            { v: 'all', l: 'All time' },
+            { v: 'yearly',  l: 'Yearly' },
+            { v: 'all',     l: 'All time' },
           ].map(opt => (
             <button
               key={opt.v}
               onClick={() => setRange(opt.v)}
+              data-testid={`admin-trades-range-${opt.v}`}
               className={`px-3 py-1 rounded text-xs font-semibold transition ${range === opt.v ? 'bg-[#1a8eff] text-white' : 'text-white/50 hover:text-white'}`}
             >
               {opt.l}
@@ -1041,10 +1079,44 @@ function TradesView({ openTrades, closedTrades, onForce }) {
           ))}
         </div>
       </div>
+
+      {/* Summary cards — total / open / closed / wins / losses / volume / net P&L
+          for the selected time window (search box does NOT affect these). */}
+      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-2" data-testid="admin-trades-summary">
+        <SummaryCard label={`Total · ${rangeLabel}`} value={summary.total}                      accent="text-white"        big testid="admin-trades-summary-total" />
+        <SummaryCard label="Open"                    value={summary.open}                       accent="text-[#22d3ee]"    testid="admin-trades-summary-open" />
+        <SummaryCard label="Closed"                  value={summary.closed}                     accent="text-white/80"     testid="admin-trades-summary-closed" />
+        <SummaryCard label="Wins"                    value={summary.wins}                       accent="text-[#00b97a]"    testid="admin-trades-summary-wins" />
+        <SummaryCard label="Losses"                  value={summary.losses}                     accent="text-[#ff5555]"    testid="admin-trades-summary-losses" />
+        <SummaryCard label="Win rate"                value={`${summary.winRate}%`}              accent="text-[#f0b90b]"    testid="admin-trades-summary-winrate" />
+        <SummaryCard label="Volume"                  value={`$${fmt(summary.volume)}`}          accent="text-white"        testid="admin-trades-summary-volume" />
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-7 gap-2 -mt-2">
+        <div className="lg:col-span-7">
+          <SummaryCard
+            label={`House net P&L · ${rangeLabel}`}
+            value={`${summary.netPnl <= 0 ? '+' : '-'}$${fmt(Math.abs(summary.netPnl))}`}
+            // House gains when traders LOSE → trader pnl is negative → house +.
+            accent={summary.netPnl <= 0 ? 'text-[#00b97a]' : 'text-[#ff5555]'}
+            big
+            testid="admin-trades-summary-house-pnl"
+          />
+        </div>
+      </div>
+
       <SectionTitle title="Open Trades" count={openFiltered.length} />
       <TradesTable trades={openFiltered} onForce={onForce} live />
       <SectionTitle title="Recent History" count={closedFiltered.length} />
       <TradesTable trades={closedFiltered} closed />
+    </div>
+  );
+}
+
+function SummaryCard({ label, value, accent = 'text-white', big = false, testid }) {
+  return (
+    <div className="bg-[#11161e] border border-white/5 rounded-lg p-3" data-testid={testid}>
+      <div className="text-[10px] uppercase tracking-wide text-white/40">{label}</div>
+      <div className={`mt-1 font-bold ${big ? 'text-2xl' : 'text-lg'} ${accent}`}>{value}</div>
     </div>
   );
 }

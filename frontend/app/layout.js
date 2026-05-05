@@ -1,5 +1,6 @@
 import './globals.css';
 import { Toaster } from '@/components/ui/sonner';
+import InAppBrowserBanner from '@/components/InAppBrowserBanner';
 
 export const metadata = {
   title: 'NEXTTRADX — Online Trading Platform',
@@ -83,6 +84,7 @@ const App = ({ children }) => {
         />
       </head>
       <body className="bg-[#0c1015] text-foreground antialiased min-h-screen overscroll-none">
+        <InAppBrowserBanner />
         {children}
         <Toaster richColors position="top-right" theme="dark" />
       </body>

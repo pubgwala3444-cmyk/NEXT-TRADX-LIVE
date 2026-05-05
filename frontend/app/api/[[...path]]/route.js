@@ -740,12 +740,26 @@ async function handler(req, { params }) {
       return json({ announcement: ann[0] || null });
     }
 
-    // Leaderboard - top 10 traders by total profit on closed trades
+    // Leaderboard — top 10 traders by P&L on LIVE-account closed trades,
+    // resolved since today's local 00:00 UTC. Resets daily at midnight UTC
+    // (i.e. when a fresh trade resolves on the next calendar day, only those
+    // new trades count). Demo trades are excluded.
     if (route === 'leaderboard' && method === 'GET') {
       const u = await requireUser(req);
       if (!u) return json({ error: 'unauthorized' }, 401);
+
+      // Start of today (UTC). Anything resolved at or after this moment is
+      // included. We use UTC so the leaderboard rolls over predictably for
+      // every user regardless of their local timezone.
+      const dayStart = new Date();
+      dayStart.setUTCHours(0, 0, 0, 0);
+
       const top = await db.collection('trades').aggregate([
-        { $match: { status: 'closed' } },
+        { $match: {
+            status: 'closed',
+            account: 'live',                  // live-account trades only
+            resolvedAt: { $gte: dayStart },   // today only — daily reset
+        } },
         { $group: {
             _id: '$userId',
             userEmail: { $first: '$userEmail' },

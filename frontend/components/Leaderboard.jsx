@@ -3,10 +3,24 @@ import { useEffect, useState } from 'react';
 import { Trophy, Medal, Crown, RefreshCw } from 'lucide-react';
 import { api } from '@/lib/api';
 
-// Top 10 traders by total profit. Auto-refreshes every 10s.
+// Returns the time remaining (string) until the next UTC midnight.
+function nextResetCountdown() {
+  const now = new Date();
+  const next = new Date(now);
+  next.setUTCHours(24, 0, 0, 0);
+  const ms = next - now;
+  const h = Math.floor(ms / 3_600_000);
+  const m = Math.floor((ms % 3_600_000) / 60_000);
+  return `${h}h ${m}m`;
+}
+
+// Top 10 traders by today's P&L on LIVE-account closed trades.
+// The list resets at 00:00 UTC (server enforces the cutoff).
+// Auto-refreshes every 10 s.
 export default function Leaderboard({ compact = false }) {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [resetIn, setResetIn] = useState(nextResetCountdown());
 
   useEffect(() => {
     let stop = false;
@@ -18,22 +32,33 @@ export default function Leaderboard({ compact = false }) {
     };
     tick();
     const id = setInterval(tick, 10_000);
-    return () => { stop = true; clearInterval(id); };
+    const cd = setInterval(() => setResetIn(nextResetCountdown()), 60_000);
+    return () => { stop = true; clearInterval(id); clearInterval(cd); };
   }, []);
 
   return (
-    <div className="bg-[#11161e] border border-white/5 rounded-xl overflow-hidden">
+    <div className="bg-[#11161e] border border-white/5 rounded-xl overflow-hidden" data-testid="leaderboard">
       <div className={`flex items-center gap-2 px-3 ${compact ? 'py-2' : 'py-3'} border-b border-white/5 bg-gradient-to-r from-[#f0b90b]/10 via-transparent to-transparent`}>
         <Trophy className="w-4 h-4 text-[#f0b90b]" />
         <div className="flex-1">
           <div className="text-xs font-bold uppercase tracking-wider">Top Traders</div>
-          {!compact && <div className="text-[10px] text-white/40">Live ranking · top 10</div>}
+          {!compact && (
+            <div className="text-[10px] text-white/40 flex items-center gap-1.5" data-testid="leaderboard-subtitle">
+              <span>Today · Live · top 10</span>
+              <span className="text-white/20">•</span>
+              <span title="Resets daily at 00:00 UTC">resets in {resetIn}</span>
+            </div>
+          )}
         </div>
         {loading && <RefreshCw className="w-3 h-3 text-white/30 animate-spin" />}
       </div>
       <div className={compact ? 'max-h-[260px] overflow-y-auto scrollbar-thin' : 'max-h-[420px] overflow-y-auto scrollbar-thin'}>
         {rows.length === 0 ? (
-          <div className="p-6 text-center text-xs text-white/40">{loading ? 'Loading…' : 'No trades yet — be the first on the board!'}</div>
+          <div className="p-6 text-center text-xs text-white/40" data-testid="leaderboard-empty">
+            {loading
+              ? 'Loading…'
+              : 'No live-account trades closed today yet. Switch to Live, place a trade, and lead the board!'}
+          </div>
         ) : rows.map((r) => (
           <div key={r.rank} className={`flex items-center gap-2 px-3 py-2 border-b border-white/[0.03] last:border-b-0 ${r.isMe ? 'bg-[#00b97a]/10' : 'hover:bg-white/[0.02]'}`}>
             <RankBadge rank={r.rank} />

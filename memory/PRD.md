@@ -87,10 +87,10 @@ workspace runs the `fastapi_react_mongo_shadcn` base image. Adapted layout:
 - [x] ~~Mobile PWA manifest + offline shell~~ — explicitly disabled per user request (Feb 2026)
 
 ## Recent Changes
-- **Feb 2026 — PWA install fully disabled** in `/app/frontend/app/layout.js`:
-  - Removed `applicationName` and `apple` icon from metadata (no `<meta name="application-name">`, no `apple-touch-icon` link)
-  - Added `<meta name="apple-mobile-web-app-capable" content="no">` and `<meta name="mobile-web-app-capable" content="no">`
-  - Inlined head script that `preventDefault()`s `beforeinstallprompt` & `appinstalled`, unregisters any pre-existing service workers, and clears CacheStorage. Site cannot be installed on any mobile/desktop browser. User to redeploy production (`https://nexttradx.com`) to apply.
+- **Feb 2026 — PWA install fully disabled** (multiple layers):
+  - `/app/frontend/app/manifest.js` (NEW) — explicit Web App Manifest with `display: "browser"` and `display_override: ["browser"]`. This is the **decisive** fix: Chrome's installability heuristics require `display: standalone/fullscreen/minimal-ui` to offer an "Install app" button, so with `"browser"` Chrome will only ever create a plain bookmark shortcut (opens with address bar visible). Re-enable PWA later by flipping `"browser"` → `"standalone"` in this single file.
+  - `/app/frontend/app/layout.js` — removed `applicationName` + `apple` icon metadata; added `<meta name="apple-mobile-web-app-capable" content="no">` and `<meta name="mobile-web-app-capable" content="no">`; inlined head script that `preventDefault()`s `beforeinstallprompt` & `appinstalled`, auto-unregisters service workers, and clears CacheStorage from prior installs.
+  - `/app/frontend/components/InAppBrowserBanner.jsx` (NEW, **disabled by default**) — detects in-app webviews (Instagram/FB/TikTok/X/LinkedIn/Snapchat/Pinterest/WeChat/LINE/KakaoTalk) and shows a tiny "Open in Chrome/Safari" banner. Activate via `BANNER_ENABLED=true` constant or `NEXT_PUBLIC_INAPP_BANNER_ENABLED=true` env var.
 
 ## Next Tasks
 1. User redeploys to production to push PWA-disable change live

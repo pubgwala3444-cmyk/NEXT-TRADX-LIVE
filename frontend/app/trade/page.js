@@ -45,6 +45,10 @@ function fmtPrice(p, d = 5) {
 export default function TradeTerminal() {
   const router = useRouter();
   const [user, setUser] = useState(null);
+  // Hydration flag — until the stored user is loaded we don't render the
+  // workspace, so we never flash the hard-coded defaults before the user's
+  // saved preferences (last asset / interval / duration / amount) take over.
+  const [hydrated, setHydrated] = useState(false);
   const [assets, setAssets] = useState([]);
   const [asset, setAsset] = useState('XAUUSD');
   const [interval, setInterval_] = useState(5);
@@ -91,15 +95,65 @@ export default function TradeTerminal() {
   useEffect(() => {
     const u = getStoredUser();
     if (!u) { router.push('/login'); return; }
+
+    // Apply any locally-cached prefs immediately so the page paints in the
+    // user's last workspace. Server-side prefs come back via api.me() right
+    // after — if they differ they win, but in the common case the cache is
+    // already up-to-date and there's no flicker.
+    applyPrefs(u.prefs);
     setUser(u);
-    api.me().then(r => { setUser(r.user); setStoredUser(r.user); }).catch(() => {
+    setHydrated(true);
+
+    api.me().then(r => {
+      setUser(r.user);
+      setStoredUser(r.user);
+      applyPrefs(r.user?.prefs);
+    }).catch(() => {
       setToken(null); router.push('/login');
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router]);
+
+  // Apply stored preferences to local state (ignores blank/invalid values
+  // so first-time users keep the sensible defaults).
+  const applyPrefs = (p) => {
+    if (!p || typeof p !== 'object') return;
+    if (typeof p.lastAsset === 'string' && p.lastAsset)              setAsset(p.lastAsset);
+    if (typeof p.lastInterval === 'number' && p.lastInterval > 0)    setInterval_(p.lastInterval);
+    if (typeof p.lastDuration === 'number' && p.lastDuration > 0)    setDuration(p.lastDuration);
+    if (typeof p.lastAmount === 'number' && p.lastAmount > 0)        setAmount(p.lastAmount);
+    if (p.lastAssetTab === 'otc' || p.lastAssetTab === 'live')       setAssetTab(p.lastAssetTab);
+  };
 
   const refreshMe = async () => {
     try { const r = await api.me(); setUser(r.user); setStoredUser(r.user); } catch {}
   };
+
+  // Persist trade workspace preferences to the server (debounced 600 ms) so
+  // that next login lands the user back on their last asset / timeframe /
+  // duration / amount / OTC-vs-LIVE tab. We only start saving AFTER the
+  // initial hydration so we don't overwrite the user's stored prefs with
+  // the hard-coded defaults during boot.
+  useEffect(() => {
+    if (!hydrated || !user) return;
+    const id = setTimeout(() => {
+      const payload = {
+        lastAsset: asset,
+        lastInterval: interval,
+        lastDuration: duration,
+        lastAmount: Number(amount) || 0,
+        lastAssetTab: assetTab,
+      };
+      api.savePrefs(payload).then(() => {
+        // Mirror into localStorage so a subsequent page load (before the
+        // /api/auth/me round-trip finishes) already sees the latest prefs.
+        const stored = getStoredUser();
+        if (stored) setStoredUser({ ...stored, prefs: { ...(stored.prefs || {}), ...payload } });
+      }).catch(() => { /* silent — not critical */ });
+    }, 600);
+    return () => clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hydrated, asset, interval, duration, amount, assetTab]);
 
   // ---- Assets ----
   useEffect(() => {

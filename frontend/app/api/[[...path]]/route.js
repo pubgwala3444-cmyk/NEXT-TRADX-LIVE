@@ -45,7 +45,8 @@ function publicUser(u) {
     role: u.role,
     demoBalance: u.demoBalance,
     liveBalance: u.liveBalance,
-    activeAccount: u.activeAccount
+    activeAccount: u.activeAccount,
+    prefs: u.prefs || {}
   };
 }
 
@@ -152,6 +153,30 @@ async function handler(req, { params }) {
       );
       const fresh = await db.collection('users').findOne({ id: u.id });
       return json({ user: publicUser(fresh) });
+    }
+
+    // Persisted user preferences (last asset, last interval, last trade size,
+    // etc.). Saved automatically by the trade page so that on next login
+    // the workspace re-opens exactly where the trader left off.
+    if (route === 'auth/prefs' && method === 'PUT') {
+      const u = await requireUser(req);
+      if (!u) return json({ error: 'Unauthorized' }, 401);
+      const body = await req.json().catch(() => ({}));
+      const allowed = ['lastAsset', 'lastInterval', 'lastDuration', 'lastAmount', 'lastAssetTab'];
+      const update = {};
+      for (const k of allowed) {
+        if (body[k] === undefined) continue;
+        const v = body[k];
+        if (k === 'lastAsset')      update[`prefs.${k}`] = String(v).slice(0, 32);
+        else if (k === 'lastAssetTab') update[`prefs.${k}`] = ['otc','live'].includes(v) ? v : 'otc';
+        else if (k === 'lastInterval') update[`prefs.${k}`] = Math.max(5, Math.min(600, Number(v) || 5));
+        else if (k === 'lastDuration') update[`prefs.${k}`] = Math.max(5, Math.min(1800, Math.floor(Number(v) || 60)));
+        else if (k === 'lastAmount')   update[`prefs.${k}`] = Math.max(1, Math.min(100000, Math.floor(Number(v) || 1)));
+      }
+      if (Object.keys(update).length === 0) return json({ ok: true, prefs: u.prefs || {} });
+      await db.collection('users').updateOne({ id: u.id }, { $set: update });
+      const fresh = await db.collection('users').findOne({ id: u.id });
+      return json({ ok: true, prefs: fresh.prefs || {} });
     }
 
     // ----- MARKET DATA -----

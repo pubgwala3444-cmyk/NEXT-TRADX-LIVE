@@ -68,6 +68,8 @@ export const api = {
     request('/auth/change-password', { method: 'POST', body: JSON.stringify({ currentPassword, newPassword }) }),
   updateProfile: (name) =>
     request('/auth/profile', { method: 'PUT', body: JSON.stringify({ name }) }),
+  savePrefs: (prefs) =>
+    request('/auth/prefs', { method: 'PUT', body: JSON.stringify(prefs) }),
   assets: () => request('/assets'),
   price: (sym) => request(`/price/${sym}`),
   candles: (sym, interval = 5) => request(`/candles/${sym}?interval=${interval}`),

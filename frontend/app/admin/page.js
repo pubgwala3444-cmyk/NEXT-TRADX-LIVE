@@ -259,6 +259,57 @@ export default function AdminPanel() {
 
 /* ==================== Views ==================== */
 
+// Standalone component for the payout multiplier so the input owns its own
+// "raw typing" string and the user can freely type values like `1.`, `1.2`,
+// `1.45`, etc. without React forcing the value back to an integer on every
+// keystroke. We only coerce to a number on blur (and clamp it to 1.0–5.0).
+function PayoutMultiplierField({ value, onChange }) {
+  const [draft, setDraft] = useState(() => Number(value).toFixed(2));
+
+  // Sync from parent when settings refresh from the server, but never while
+  // the user is actively typing into this field.
+  useEffect(() => {
+    const isFocused = typeof document !== 'undefined'
+      && document.activeElement?.dataset?.testid === 'admin-payout-multiplier-input';
+    if (isFocused) return;
+    setDraft(Number(value).toFixed(2));
+  }, [value]);
+
+  const commit = () => {
+    const n = parseFloat(draft);
+    const clamped = Number.isFinite(n) && n >= 1 && n <= 5 ? n : 1.85;
+    setDraft(clamped.toFixed(2));
+    if (clamped !== Number(value)) onChange(clamped);
+  };
+
+  return (
+    <div className="flex items-center gap-2 bg-[#0c1015] border border-white/10 rounded-md px-2 py-1" data-testid="admin-payout-multiplier-row">
+      <span className="uppercase">Payout multiplier:</span>
+      <input
+        type="text"
+        inputMode="decimal"
+        value={draft}
+        onChange={(e) => {
+          // Accept any partial decimal: '', '1', '1.', '1.2', '1.45', '.5'.
+          // Strip non-digits / non-dots, then collapse extra dots.
+          const v = e.target.value.replace(/[^0-9.]/g, '');
+          const firstDot = v.indexOf('.');
+          const fixed = firstDot === -1
+            ? v
+            : v.slice(0, firstDot + 1) + v.slice(firstDot + 1).replace(/\./g, '');
+          setDraft(fixed);
+        }}
+        onBlur={commit}
+        onKeyDown={(e) => { if (e.key === 'Enter') { e.currentTarget.blur(); } }}
+        data-testid="admin-payout-multiplier-input"
+        className="bg-transparent border-0 h-6 w-14 text-xs p-0 text-white font-bold text-center outline-none focus:text-[#00b97a] caret-[#00b97a]"
+      />
+      <span className="text-white/50 font-bold">x</span>
+      <span className="text-white/30">(applies to all new trades)</span>
+    </div>
+  );
+}
+
 function DashboardView({ stats, settings, setSettings, saveSettings, setMode, currentMode, winPct, houseEdge, customPattern, setCustomPattern }) {
   return (
     <div className="space-y-6 max-w-[1400px]">
@@ -344,27 +395,13 @@ function DashboardView({ stats, settings, setSettings, saveSettings, setMode, cu
         </div>
         <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-[11px] text-white/40">
           <span>House edge: <span className="text-white/70 font-bold">{houseEdge}%</span></span>
-          <div className="flex items-center gap-2 bg-[#0c1015] border border-white/10 rounded-md px-2 py-1" data-testid="admin-payout-multiplier-row">
-            <span className="uppercase">Payout multiplier:</span>
-            <Input
-              type="number"
-              step="0.05"
-              min={1}
-              max={5}
-              value={settings.payoutRate ?? 1.85}
-              onChange={(e) => setSettings(s => ({ ...s, payoutRate: e.target.value === '' ? '' : Number(e.target.value) }))}
-              onBlur={() => {
-                const n = Number(settings.payoutRate);
-                const clamped = Number.isFinite(n) && n >= 1 && n <= 5 ? n : 1.85;
-                setSettings(s => ({ ...s, payoutRate: clamped }));
-                saveSettings({ payoutRate: clamped });
-              }}
-              className="bg-transparent border-0 h-6 w-14 text-xs p-0 text-white font-bold text-center"
-              data-testid="admin-payout-multiplier-input"
-            />
-            <span className="text-white/50 font-bold">x</span>
-            <span className="text-white/30">(applies to all new trades)</span>
-          </div>
+          <PayoutMultiplierField
+            value={settings.payoutRate ?? 1.85}
+            onChange={(n) => {
+              setSettings(s => ({ ...s, payoutRate: n }));
+              saveSettings({ payoutRate: n });
+            }}
+          />
         </div>
       </Section>
 

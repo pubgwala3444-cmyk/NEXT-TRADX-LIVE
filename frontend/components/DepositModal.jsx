@@ -12,7 +12,7 @@ import { toast } from 'sonner';
 // User sends crypto to our Binance ID, then fills out the form with their
 // transaction hash + screenshot proof, which goes to admin for approval.
 const BINANCE_PAY_ID = '1116347904';
-const BINANCE_NAME = 'Trading Lite';
+const BINANCE_NAME = 'NEXT-TRADEX';
 const MAX_SCREENSHOT_BYTES = 1024 * 1024; // 1 MB
 
 export default function DepositModal({ open, onClose, onSuccess }) {
@@ -127,7 +127,7 @@ export default function DepositModal({ open, onClose, onSuccess }) {
               </div>
               <div className="mt-3 flex items-start gap-2 text-[11px] text-white/50">
                 <ShieldCheck className="w-3.5 h-3.5 text-[#00b97a] shrink-0 mt-0.5" />
-                <span>Use Binance Pay or any Binance internal transfer. Verify the recipient name <span className="text-white font-bold">Trading Lite</span> before sending.</span>
+                <span>Use Binance Pay or any Binance internal transfer. Verify the recipient name <span className="text-white font-bold">NEXT-TRADEX</span> before sending.</span>
               </div>
             </div>
 

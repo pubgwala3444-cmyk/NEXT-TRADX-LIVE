@@ -152,7 +152,7 @@ export default function AdminPanel() {
             <TradingLiteLogo compact />
             <button className="md:hidden text-white/60" onClick={() => setNavOpen(false)}><X className="w-4 h-4" /></button>
           </div>
-          <div className="mt-2 text-[10px] text-white/40 uppercase tracking-wider">Trading Lite v1.0</div>
+          <div className="mt-2 text-[10px] text-white/40 uppercase tracking-wider">NEXT-TRADEX v1.0</div>
         </div>
         <nav className="flex-1 p-2 space-y-1 overflow-y-auto scrollbar-thin">
           {NAV_ITEMS.map(it => (
@@ -342,9 +342,29 @@ function DashboardView({ stats, settings, setSettings, saveSettings, setMode, cu
             </Button>
           </div>
         </div>
-        <div className="mt-3 flex items-center justify-between text-[11px] text-white/40">
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-[11px] text-white/40">
           <span>House edge: <span className="text-white/70 font-bold">{houseEdge}%</span></span>
-          <span>Payout multiplier: <span className="text-white/70 font-bold">{Number(settings.payoutRate ?? 1.85).toFixed(2)}x</span></span>
+          <div className="flex items-center gap-2 bg-[#0c1015] border border-white/10 rounded-md px-2 py-1" data-testid="admin-payout-multiplier-row">
+            <span className="uppercase">Payout multiplier:</span>
+            <Input
+              type="number"
+              step="0.05"
+              min={1}
+              max={5}
+              value={settings.payoutRate ?? 1.85}
+              onChange={(e) => setSettings(s => ({ ...s, payoutRate: e.target.value === '' ? '' : Number(e.target.value) }))}
+              onBlur={() => {
+                const n = Number(settings.payoutRate);
+                const clamped = Number.isFinite(n) && n >= 1 && n <= 5 ? n : 1.85;
+                setSettings(s => ({ ...s, payoutRate: clamped }));
+                saveSettings({ payoutRate: clamped });
+              }}
+              className="bg-transparent border-0 h-6 w-14 text-xs p-0 text-white font-bold text-center"
+              data-testid="admin-payout-multiplier-input"
+            />
+            <span className="text-white/50 font-bold">x</span>
+            <span className="text-white/30">(applies to all new trades)</span>
+          </div>
         </div>
       </Section>
 

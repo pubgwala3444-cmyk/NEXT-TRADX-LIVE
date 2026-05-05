@@ -1,6 +1,8 @@
 {
+  "/admin/page": "app/admin/page.js",
+  "/transactions/page": "app/transactions/page.js",
+  "/login/page": "app/login/page.js",
   "/api/[[...path]]/route": "app/api/[[...path]]/route.js",
-  "/trades-history/page": "app/trades-history/page.js",
   "/trade/page": "app/trade/page.js",
-  "/icon.svg/route": "app/icon.svg/route.js"
+  "/page": "app/page.js"
 }

@@ -241,13 +241,9 @@ function TxRow({ t }) {
         {expanded ? <ChevronUp className="w-4 h-4 text-white/40" /> : <ChevronDown className="w-4 h-4 text-white/40" />}
       </button>
       {expanded && (
-        <div className="border-t border-white/5 bg-[#0c1015] px-4 py-3 text-xs space-y-2" data-testid={`tx-row-detail-${t.id}`}>
+        <div className="border-t border-white/5 bg-[#0c1015] px-4 py-3 text-xs space-y-3" data-testid={`tx-row-detail-${t.id}`}>
           <Detail label="Reference" value={t.id} mono />
-          <Detail label="Method details" value={
-            t.methodData && Object.keys(t.methodData).length > 0
-              ? <pre className="text-[11px] font-mono whitespace-pre-wrap break-all text-white/70">{JSON.stringify(t.methodData, null, 2)}</pre>
-              : '—'
-          } />
+          <MethodDetailsBlock data={t.methodData} />
           <Detail label="Resolved at" value={fmtDate(t.resolvedAt)} />
           {t.adminNote && <Detail label="Admin note" value={<span className="text-white/80">{t.adminNote}</span>} />}
         </div>
@@ -261,6 +257,104 @@ function Detail({ label, value, mono = false }) {
     <div className="flex items-start gap-3">
       <div className="w-32 shrink-0 text-white/40 uppercase tracking-wide text-[10px] pt-0.5">{label}</div>
       <div className={`flex-1 ${mono ? 'font-mono text-[11px] text-white/70 break-all' : 'text-white/80'}`}>{value}</div>
+    </div>
+  );
+}
+
+// Pretty-renders the per-transaction `methodData` blob.
+//   - data:image/* values are shown as a small image thumbnail with a
+//     "View full size" link instead of dumping a 200KB base64 string.
+//   - All other values are shown as readable label/value rows.
+//   - Recognises common keys from the deposit modal (binance_id, tx_hash,
+//     recipient, screenshot, etc.) and prints nicely cased labels.
+function MethodDetailsBlock({ data }) {
+  if (!data || typeof data !== 'object' || Object.keys(data).length === 0) {
+    return <Detail label="Method details" value="—" />;
+  }
+
+  const labelFor = (key) => {
+    const map = {
+      binance_id: 'Binance ID',
+      tx_hash: 'Tx Hash',
+      recipient: 'Recipient',
+      screenshot: 'Proof Screenshot',
+      address: 'Wallet Address',
+      network: 'Network',
+      memo: 'Memo / Tag',
+      account: 'Account #',
+      ifsc: 'IFSC',
+      upi: 'UPI ID',
+      email: 'Email',
+      note: 'Note',
+    };
+    return map[key] || key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  };
+
+  return (
+    <div className="space-y-2" data-testid="tx-method-details">
+      <div className="text-white/40 uppercase tracking-wide text-[10px]">Method details</div>
+      <div className="space-y-2 pl-1">
+        {Object.entries(data).map(([k, v]) => (
+          <MethodRow key={k} label={labelFor(k)} fieldKey={k} value={v} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function MethodRow({ label, fieldKey, value }) {
+  // Image-as-data-url: don't blast the base64 onto the screen.
+  const isDataUrl = typeof value === 'string' && /^data:image\//i.test(value);
+  if (isDataUrl) {
+    return (
+      <div className="flex items-start gap-3" data-testid={`tx-method-row-${fieldKey}`}>
+        <div className="w-32 shrink-0 text-white/40 uppercase tracking-wide text-[10px] pt-1">{label}</div>
+        <div className="flex-1 flex items-center gap-3 flex-wrap">
+          <a href={value} target="_blank" rel="noopener noreferrer" className="block" data-testid={`tx-method-image-${fieldKey}`}>
+            <img
+              src={value}
+              alt={label}
+              className="max-h-32 rounded border border-white/10 hover:border-[#00b97a]/60 transition cursor-zoom-in object-contain bg-[#11161e]"
+            />
+          </a>
+          <a
+            href={value}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-[11px] text-[#00b97a] hover:underline"
+          >
+            View full size →
+          </a>
+        </div>
+      </div>
+    );
+  }
+
+  // Plain http(s) URL → render as a link.
+  if (typeof value === 'string' && /^https?:\/\//i.test(value)) {
+    return (
+      <div className="flex items-start gap-3" data-testid={`tx-method-row-${fieldKey}`}>
+        <div className="w-32 shrink-0 text-white/40 uppercase tracking-wide text-[10px] pt-0.5">{label}</div>
+        <a href={value} target="_blank" rel="noopener noreferrer" className="flex-1 text-[#00b97a] hover:underline break-all text-[11px]">{value}</a>
+      </div>
+    );
+  }
+
+  // Nested object — fall back to a compact JSON pre.
+  if (value && typeof value === 'object') {
+    return (
+      <div className="flex items-start gap-3" data-testid={`tx-method-row-${fieldKey}`}>
+        <div className="w-32 shrink-0 text-white/40 uppercase tracking-wide text-[10px] pt-0.5">{label}</div>
+        <pre className="flex-1 text-[11px] font-mono whitespace-pre-wrap break-all text-white/70 m-0">{JSON.stringify(value, null, 2)}</pre>
+      </div>
+    );
+  }
+
+  // Anything else — string / number / bool.
+  return (
+    <div className="flex items-start gap-3" data-testid={`tx-method-row-${fieldKey}`}>
+      <div className="w-32 shrink-0 text-white/40 uppercase tracking-wide text-[10px] pt-0.5">{label}</div>
+      <div className="flex-1 font-mono text-[11px] text-white/80 break-all">{String(value ?? '—')}</div>
     </div>
   );
 }

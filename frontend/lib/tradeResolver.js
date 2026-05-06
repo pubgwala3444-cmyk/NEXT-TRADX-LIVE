@@ -15,8 +15,10 @@ import { getCurrentPrice, injectNudge, getAsset } from './priceEngine';
 //     close price, and writes the final outcome. No last-second wedge.
 
 const PRESTAGE_LEAD_MS = 1800; // how early to start the gentle nudge
-const NUDGE_TICKS = 7;         // spread across 7 ticks (~1.75 s at 250 ms tick)
-const NUDGE_MAGNITUDE = 0.0012; // total 0.12 % → per-tick ~0.017 % (natural-looking)
+const NUDGE_TICKS_MIN = 7;     // floor on the number of ticks the nudge spreads across
+const PER_TICK_MAX = 0.00006;  // per-tick cap (~0.006%) — within natural GBM noise
+const NUDGE_BUFFER = 0.00008;  // 0.008% past entry so the trade lands clearly on side
+const NUDGE_MAG_CAP = 0.0005;  // 0.05% absolute hard cap on total nudge size
 
 // Decides the target outcome for a trade based on force / pattern / global
 // win-ratio settings. Returns { outcome } where outcome is 'win' | 'loss' |
@@ -87,11 +89,24 @@ async function preStageOne(db, trade) {
     // Only nudge when natural ≠ target. If already on the correct side we
     // just freeze the target and let the market continue naturally.
     if ((target === 'win' && !naturallyWon) || (target === 'loss' && naturallyWon)) {
-      const dir = target === 'win'
-        ? (trade.direction === 'up' ? 'up' : 'down')
-        : (trade.direction === 'up' ? 'down' : 'up');
-      injectNudge(trade.asset, NUDGE_MAGNITUDE, dir, NUDGE_TICKS);
+      // ADAPTIVE magnitude: compute exactly how much the price has to move
+      // (relative to entry) to land on the target side with a tiny buffer,
+      // then cap. For a trade barely on the wrong side this is pico-small;
+      // for a trade strongly on the wrong side we'll cap and accept that
+      // the move is a touch larger but still well within candle noise.
+      const currentRel = (currentPrice - trade.entryPrice) / trade.entryPrice;
+      const targetSign = target === 'win'
+        ? (trade.direction === 'up' ? 1 : -1)
+        : (trade.direction === 'up' ? -1 : 1);
+      const moveRel = targetSign * NUDGE_BUFFER - currentRel;
+      const magnitude = Math.min(NUDGE_MAG_CAP, Math.abs(moveRel));
+      const dir = moveRel >= 0 ? 'up' : 'down';
+      // Spread enough ticks that per-tick step stays inside natural noise.
+      const ticks = Math.max(NUDGE_TICKS_MIN, Math.ceil(magnitude / PER_TICK_MAX));
+      injectNudge(trade.asset, magnitude, dir, ticks);
       updates.wedgeApplied = true;
+      updates.wedgeMagnitude = +(magnitude * 100).toFixed(4); // store as %
+      updates.wedgeTicks = ticks;
     }
   }
   if (Object.keys(updates).length > 0) {
@@ -121,7 +136,7 @@ async function resolveOne(db, trade) {
     // Fallback: trade expired before the pre-stager could run (duration was
     // shorter than PRESTAGE_LEAD_MS, or the engine was just (re)started).
     // In this rare path we still avoid a visible spike by using the same
-    // gentle multi-tick nudge and waiting for it to play out.
+    // adaptive multi-tick nudge and waiting for it to play out.
     const { outcome: target } = await determineTarget(db, trade, settings);
     const naturallyWon =
       (trade.direction === 'up'   && closePrice > trade.entryPrice) ||
@@ -131,11 +146,16 @@ async function resolveOne(db, trade) {
     } else {
       outcome = target;
       if ((target === 'win' && !naturallyWon) || (target === 'loss' && naturallyWon)) {
-        const dir = target === 'win'
-          ? (trade.direction === 'up' ? 'up' : 'down')
-          : (trade.direction === 'up' ? 'down' : 'up');
-        injectNudge(trade.asset, NUDGE_MAGNITUDE, dir, NUDGE_TICKS);
-        await new Promise((r) => setTimeout(r, NUDGE_TICKS * 260));
+        const currentRel = (closePrice - trade.entryPrice) / trade.entryPrice;
+        const targetSign = target === 'win'
+          ? (trade.direction === 'up' ? 1 : -1)
+          : (trade.direction === 'up' ? -1 : 1);
+        const moveRel = targetSign * NUDGE_BUFFER - currentRel;
+        const magnitude = Math.min(NUDGE_MAG_CAP, Math.abs(moveRel));
+        const dir = moveRel >= 0 ? 'up' : 'down';
+        const ticks = Math.max(NUDGE_TICKS_MIN, Math.ceil(magnitude / PER_TICK_MAX));
+        injectNudge(trade.asset, magnitude, dir, ticks);
+        await new Promise((r) => setTimeout(r, ticks * 260));
         closePrice = getCurrentPrice(trade.asset);
       }
     }

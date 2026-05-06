@@ -212,11 +212,24 @@ export function onLiveTick(symbol, price, t) {
     s.seeded = true;
     s.prewarmVersion = 2;
   }
+  // While a nudge is in progress, the 250ms engine timer is driving price
+  // updates to keep the nudge smooth and consistent with OTC cadence. Raw
+  // live updates would otherwise reset s.price mid-nudge and undo the
+  // gradual drift, producing a visible spike at the next tick. We park
+  // the raw price for after the nudge completes (decay back to natural).
   if (s.nudgeTicksLeft > 0) {
-    price = price * (1 + s.pendingNudge);
-    s.nudgeTicksLeft -= 1;
-    if (s.nudgeTicksLeft === 0) s.pendingNudge = 0;
+    s.parkedLivePrice = price;
+    s.lastTickT = t || Date.now();
+    return;
   }
+  // After a nudge finishes, gently decay the residual offset between our
+  // last nudged price and the latest raw live price so the chart drifts
+  // back to real market over a few feed ticks instead of jumping.
+  if (s.parkedLivePrice && Math.abs(price - s.price) / price > 0.0001) {
+    // 30% per live tick → ~5 ticks (~10s at 2s feed cadence) to converge
+    price = s.price * 0.7 + price * 0.3;
+  }
+  s.parkedLivePrice = 0;
   s.price = price;
   s.lastTickT = t || Date.now();
   updateCandles(s, price, Date.now());
@@ -284,7 +297,25 @@ export function startEngine() {
     eng.timer = setInterval(() => {
       const now = Date.now();
       for (const s of Object.values(eng.state)) {
-        if (s.kind === 'otc') tickOTC(s, now);
+        if (s.kind === 'otc') {
+          tickOTC(s, now);
+        } else if (s.kind === 'live' && s.nudgeTicksLeft > 0 && s.price > 0) {
+          // Drive LIVE-asset nudges at the same 250ms cadence as OTC, so the
+          // pre-stage drift is smooth (4 increments / second) regardless of
+          // how often the live feed publishes. We blend a tiny GBM step in
+          // with the nudge so the candle wiggle around the trend looks
+          // identical to natural noise.
+          const z = randn();
+          const liveVol = 0.0004; // very low synthetic vol for live blending
+          const dt = 0.25 / 86400;
+          const noise = Math.exp(liveVol * Math.sqrt(dt) * z * 5);
+          const newPrice = s.price * (1 + s.pendingNudge) * noise;
+          s.price = newPrice;
+          s.nudgeTicksLeft -= 1;
+          if (s.nudgeTicksLeft === 0) s.pendingNudge = 0;
+          updateCandles(s, newPrice, now);
+          notifyStreamers(s, { type: 'tick', price: newPrice, t: now });
+        }
       }
       if (now % 30000 < eng.tickIntervalMs) {
         for (const s of Object.values(eng.state)) {

@@ -675,26 +675,41 @@ function UsersView({ users, adjustBalance }) {
     const query = q.toLowerCase();
     return shortId(u.id).toLowerCase().includes(query)
       || (u.email || '').toLowerCase().includes(query)
+      || (u.name || '').toLowerCase().includes(query)
       || (u.role || '').toLowerCase().includes(query);
   });
+  const fmtDate = (d) => {
+    if (!d) return '—';
+    try { return new Date(d).toLocaleDateString(undefined, { year: '2-digit', month: 'short', day: 'numeric' }); }
+    catch { return '—'; }
+  };
   return (
     <div className="space-y-3">
-      <div className="flex items-center gap-2 bg-[#11161e] border border-white/10 rounded-lg px-3 py-2 max-w-md">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-white/40"><circle cx="11" cy="11" r="7" /><path d="m21 21-4.3-4.3" /></svg>
-        <input
-          placeholder="Search by user ID, email, or role..."
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          className="bg-transparent flex-1 text-sm outline-none text-white placeholder:text-white/30"
-        />
-        {q && <button onClick={() => setQ('')} className="text-white/40 hover:text-white text-xs">Clear</button>}
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-2 bg-[#11161e] border border-white/10 rounded-lg px-3 py-2 max-w-md flex-1 min-w-[240px]">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-white/40"><circle cx="11" cy="11" r="7" /><path d="m21 21-4.3-4.3" /></svg>
+          <input
+            placeholder="Search by name, email, user ID, or role..."
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            className="bg-transparent flex-1 text-sm outline-none text-white placeholder:text-white/30"
+            data-testid="admin-users-search"
+          />
+          {q && <button onClick={() => setQ('')} className="text-white/40 hover:text-white text-xs">Clear</button>}
+        </div>
+        <div className="text-xs text-white/40" data-testid="admin-users-count">
+          Showing {filtered.length} of {users.length} users
+        </div>
       </div>
       <div className="bg-[#11161e] border border-white/5 rounded-xl p-0 overflow-x-auto">
-        <table className="w-full text-sm">
+        <table className="w-full text-sm" data-testid="admin-users-table">
           <thead className="bg-[#0a0d12] text-white/50 text-xs uppercase">
             <tr>
+              <th className="text-left p-3">Name</th>
+              <th className="text-left p-3">Email</th>
               <th className="text-left p-3">User ID</th>
               <th className="text-left p-3">Role</th>
+              <th className="text-left p-3 whitespace-nowrap">Joined</th>
               <th className="text-right p-3">Demo</th>
               <th className="text-right p-3">Live</th>
               <th className="text-right p-3">Active</th>
@@ -703,11 +718,16 @@ function UsersView({ users, adjustBalance }) {
           </thead>
           <tbody>
             {filtered.map(u => (
-              <tr key={u.id} className="border-t border-white/5">
-                <td className="p-3 font-mono text-xs">#{shortId(u.id)}</td>
+              <tr key={u.id} className="border-t border-white/5 hover:bg-white/[0.02]" data-testid={`admin-user-row-${shortId(u.id)}`}>
+                <td className="p-3">
+                  <div className="font-semibold text-white truncate max-w-[160px]" title={u.name || '—'}>{u.name || '—'}</div>
+                </td>
+                <td className="p-3 text-white/80 truncate max-w-[220px]" title={u.email}>{u.email}</td>
+                <td className="p-3 font-mono text-xs text-white/60" title={u.id}>#{shortId(u.id)}</td>
                 <td className="p-3">
                   <Badge className={u.role === 'admin' ? 'bg-[#ff5555]/20 text-[#ff5555]' : 'bg-white/5 text-white/70'}>{u.role}</Badge>
                 </td>
+                <td className="p-3 text-xs text-white/60 whitespace-nowrap">{fmtDate(u.createdAt)}</td>
                 <td className="p-3 text-right font-mono">${u.demoBalance?.toFixed(2)}</td>
                 <td className="p-3 text-right font-mono">${u.liveBalance?.toFixed(2)}</td>
                 <td className="p-3 text-right text-xs text-white/50">{u.activeAccount}</td>
@@ -720,7 +740,7 @@ function UsersView({ users, adjustBalance }) {
               </tr>
             ))}
             {filtered.length === 0 && (
-              <tr><td colSpan={6} className="p-8 text-center text-white/40 text-xs">No users match your search.</td></tr>
+              <tr><td colSpan={9} className="p-8 text-center text-white/40 text-xs">No users match your search.</td></tr>
             )}
           </tbody>
         </table>

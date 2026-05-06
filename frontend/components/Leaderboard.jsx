@@ -63,9 +63,12 @@ export default function Leaderboard({ compact = false }) {
           <div key={r.rank} className={`flex items-center gap-2 px-3 py-2 border-b border-white/[0.03] last:border-b-0 ${r.isMe ? 'bg-[#00b97a]/10' : 'hover:bg-white/[0.02]'}`}>
             <RankBadge rank={r.rank} />
             <div className="flex-1 min-w-0">
-              <div className="text-xs font-bold truncate flex items-center gap-1">
-                {r.name}
-                {r.isMe && <span className="text-[8px] px-1 py-0.5 bg-[#00b97a] text-white rounded uppercase">You</span>}
+              <div className="text-xs font-bold truncate flex items-center gap-1.5">
+                <span className="truncate" title={r.name}>{r.name}</span>
+                {r.userId && (
+                  <span className="text-[9px] font-mono text-white/40 shrink-0" data-testid="leaderboard-user-id">{r.userId}</span>
+                )}
+                {r.isMe && <span className="text-[8px] px-1 py-0.5 bg-[#00b97a] text-white rounded uppercase shrink-0">You</span>}
               </div>
               <div className="text-[10px] text-white/40">
                 {r.wins}W · {r.losses}L · {r.trades} trades

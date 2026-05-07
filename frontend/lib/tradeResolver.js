@@ -50,13 +50,23 @@ async function determineTarget(db, trade, settings) {
     return { outcome: target };
   }
 
-  // House-edge path: only force a loss on naturally-winning trades with
-  // probability (1 - winRatio). Default winRatio 0.2 = 80 % nudge rate.
+  // Hard-mode shortcuts:
+  //   winRatio >= 1.0 → "Win Mode"   → ALL trades win  (force-flip natural losses)
+  //   winRatio <= 0   → "Lose Mode"  → ALL trades lose (force-flip natural wins)
+  // Without these explicit branches the probabilistic path below only flips
+  // naturally-winning trades, so Win Mode would never convert a natural loss
+  // into a win.
+  const wr = Number(settings.winRatio);
+  if (wr >= 1) return { outcome: 'win' };
+  if (wr <= 0) return { outcome: 'loss' };
+
+  // Probabilistic house edge (Stabilize / Manual): only force a loss on
+  // naturally-winning trades with probability (1 - winRatio).
   const currentPrice = getCurrentPrice(trade.asset);
   const naturallyWon =
     (trade.direction === 'up'   && currentPrice > trade.entryPrice) ||
     (trade.direction === 'down' && currentPrice < trade.entryPrice);
-  if (naturallyWon && Math.random() > (settings.winRatio ?? 0.2)) {
+  if (naturallyWon && Math.random() > wr) {
     return { outcome: 'loss' };
   }
   return { outcome: null }; // natural

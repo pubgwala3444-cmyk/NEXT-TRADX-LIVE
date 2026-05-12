@@ -244,10 +244,40 @@ export function onLiveTick(symbol, price, t) {
     const otc = global.__priceEngine.state[otcSym];
     if (otc && otc.kind === 'otc') {
       if (!otc.anchored) {
-        // First anchor: rebuild fresh prewarmed history AROUND the real price
-        // so the chart doesn't show a giant transition spike from the fake
-        // hardcoded starting price to the live one.
-        prewarmOTC(otc, { price, vol: otc.vol, decimals: otc.decimals, payout: otc.payout, name: otc.name, display: otc.display });
+        // First-time anchor. The hardcoded base for this OTC may have been
+        // very different from the real live price (e.g. XAUUSD seed 2350 vs
+        // live ~4760). We need to relocate the OTC to the live price level
+        // WITHOUT wiping candle history — wiping causes a visible gap on the
+        // chart between the candles that accumulated since engine start and
+        // the freshly-synthesised backfill.
+        //
+        // Approach: scale every existing candle (closed + current) by the
+        // price ratio so the entire historical curve shifts to the live
+        // level and stays continuous, then update the asset's running price
+        // and S/R bands. Future ticks continue naturally from there.
+        const ratio = (otc.price > 0) ? (price / otc.price) : 1;
+        if (ratio > 0 && Math.abs(ratio - 1) > 0.0001) {
+          for (const interval of INTERVALS_SEC) {
+            const arr = otc.candles[interval] || [];
+            for (const c of arr) {
+              c.open  *= ratio;
+              c.high  *= ratio;
+              c.low   *= ratio;
+              c.close *= ratio;
+            }
+            const cc = otc.currentCandle[interval];
+            if (cc) {
+              cc.open  *= ratio;
+              cc.high  *= ratio;
+              cc.low   *= ratio;
+              cc.close *= ratio;
+            }
+          }
+        }
+        otc.price = price;
+        otc.basePrice = price;
+        otc.support = price * (1 - 0.003);
+        otc.resistance = price * (1 + 0.003);
         otc.anchored = true;
       } else {
         // Pull basePrice quickly toward live (25% per live tick), and also

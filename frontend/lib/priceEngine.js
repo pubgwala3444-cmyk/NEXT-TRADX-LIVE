@@ -410,7 +410,7 @@ export function startEngine() {
           }
         }
       }
-    }, 1000);
+    }, 200);
   }
 
   eng.started = true;

@@ -231,12 +231,27 @@ export default function OTCChart({
       ctx.lineWidth = 1.5; ctx.stroke(); ctx.lineWidth = 1;
 
       // Countdown badge: seconds remaining until the current candle closes.
-      // Sits to the LEFT of the price-axis pill, on the live-price line. Helps
-      // traders time their entries to bar boundaries (standard binary-options
-      // platform feature).
+      // We derive `remaining` directly from the last candle's bucket-start
+      // time (so the countdown is GUARANTEED to be in sync with the bar that
+      // is actually drawn on the chart, regardless of any tick-cadence jitter
+      // between server and client). When the last bar's bucket boundary
+      // passes, the countdown rolls over to the new interval at the exact
+      // moment the new candle appears.
       const ivl = Math.max(1, s.intervalSec || 5);
+      const lastBar = s.candles && s.candles.length ? s.candles[s.candles.length - 1] : null;
       const nowSec = Math.floor(Date.now() / 1000);
-      const remaining = ivl - (nowSec % ivl);
+      let remaining;
+      if (lastBar && typeof lastBar.time === 'number') {
+        const endSec = lastBar.time + ivl;
+        remaining = Math.max(0, endSec - nowSec);
+        // If we've already crossed the boundary but the server hasn't pushed
+        // the new bar yet, show the FULL interval (it's the same as saying
+        // "a brand-new candle is starting right now"). Avoids the brief 00:00
+        // freeze the user reported.
+        if (remaining === 0) remaining = ivl;
+      } else {
+        remaining = ivl - (nowSec % ivl);
+      }
       const mm = String(Math.floor(remaining / 60)).padStart(2, '0');
       const ss = String(remaining % 60).padStart(2, '0');
       const cdLabel = `${mm}:${ss}`;

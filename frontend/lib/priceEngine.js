@@ -334,11 +334,10 @@ export function startEngine() {
           // pre-stage drift is smooth (4 increments / second) regardless of
           // how often the live feed publishes. We blend a tiny GBM step in
           // with the nudge so the candle wiggle around the trend looks
-          // identical to natural noise.
+          // identical to natural noise (real forex 15s noise is ~0.001 %).
           const z = randn();
-          const liveVol = 0.0004; // very low synthetic vol for live blending
-          const dt = 0.25 / 86400;
-          const noise = Math.exp(liveVol * Math.sqrt(dt) * z * 5);
+          const perTickNoiseSd = 0.00002; // 0.002 % per tick — matches real forex
+          const noise = 1 + perTickNoiseSd * z;
           const newPrice = s.price * (1 + s.pendingNudge) * noise;
           s.price = newPrice;
           s.nudgeTicksLeft -= 1;
@@ -363,8 +362,33 @@ export function startEngine() {
     eng.gapFiller = setInterval(() => {
       const now = Date.now();
       for (const s of Object.values(eng.state)) {
-        if (s.kind !== 'live' || !s.seeded || !(s.price > 0)) continue;
-        for (const interval of [5, 15, 60]) {
+        // Run for BOTH live and otc assets so neither type can show holes
+        // in the candle history when a tick is briefly skipped (e.g. during
+        // a feed stall or a brief Node event-loop blip).
+        if (!s.seeded || !(s.price > 0)) continue;
+        for (const interval of [5, 15, 60, 180, 300, 600]) {
+          // Pass 1: heal any internal holes in the historical array (a
+          // missed bucket between two existing candles). Pad with flat
+          // candles using the previous close so the chart never shows gaps.
+          const arr = s.candles[interval];
+          if (arr && arr.length > 1) {
+            const patched = [arr[0]];
+            for (let i = 1; i < arr.length; i++) {
+              const prev = patched[patched.length - 1];
+              let t = prev.time + interval;
+              while (t < arr[i].time) {
+                patched.push({ time: t, open: prev.close, high: prev.close, low: prev.close, close: prev.close });
+                t += interval;
+              }
+              patched.push(arr[i]);
+            }
+            if (patched.length !== arr.length) {
+              s.candles[interval] = patched;
+            }
+          }
+
+          // Pass 2: advance currentCandle forward through any unseen buckets
+          // up to "now".
           const bucketTime = Math.floor(now / 1000 / interval) * interval;
           const cc = s.currentCandle[interval];
           if (!cc) {

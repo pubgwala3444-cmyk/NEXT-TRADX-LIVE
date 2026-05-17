@@ -229,6 +229,37 @@ export default function OTCChart({
       ctx.beginPath(); ctx.arc(lastX, y, 9, 0, Math.PI * 2);
       ctx.strokeStyle = isUp ? 'rgba(0,185,122,0.4)' : 'rgba(255,85,85,0.4)';
       ctx.lineWidth = 1.5; ctx.stroke(); ctx.lineWidth = 1;
+
+      // Countdown badge: seconds remaining until the current candle closes.
+      // Sits to the LEFT of the price-axis pill, on the live-price line. Helps
+      // traders time their entries to bar boundaries (standard binary-options
+      // platform feature).
+      const ivl = Math.max(1, s.intervalSec || 5);
+      const nowSec = Math.floor(Date.now() / 1000);
+      const remaining = ivl - (nowSec % ivl);
+      const mm = String(Math.floor(remaining / 60)).padStart(2, '0');
+      const ss = String(remaining % 60).padStart(2, '0');
+      const cdLabel = `${mm}:${ss}`;
+      ctx.font = 'bold 10px Inter';
+      const cdW = Math.ceil(ctx.measureText(cdLabel).width) + 12;
+      const cdH = 18;
+      const cdX = chartW - cdW - 4;
+      const cdY = y - cdH / 2;
+      ctx.fillStyle = 'rgba(15,20,28,0.92)';
+      ctx.strokeStyle = 'rgba(255,255,255,0.18)';
+      ctx.beginPath();
+      if (ctx.roundRect) {
+        ctx.roundRect(cdX, cdY, cdW, cdH, 4);
+      } else {
+        ctx.rect(cdX, cdY, cdW, cdH);
+      }
+      ctx.fill(); ctx.stroke();
+      ctx.fillStyle = 'rgba(255,255,255,0.85)';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(cdLabel, cdX + cdW / 2, y);
+      ctx.textAlign = 'start';
+
       ctx.fillStyle = isUp ? '#00b97a' : '#ff5555';
       ctx.fillRect(chartW + 1, y - 9, PRICE_AXIS_W - 2, 18);
       ctx.fillStyle = 'white'; ctx.font = 'bold 10px Inter'; ctx.textBaseline = 'middle';
